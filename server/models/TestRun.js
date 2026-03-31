@@ -50,6 +50,14 @@ const finalMetricsSchema = new mongoose.Schema(
 
 const testRunSchema = new mongoose.Schema(
   {
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      required: true,
+      index: true,
+    },
+    projectName: { type: String, required: true, trim: true, maxlength: 120 },
+    projectBaseUrl: { type: String, required: true, trim: true, maxlength: 2048 },
     name: { type: String, required: true, trim: true, maxlength: 120 },
     targetUrl: { type: String, required: true, trim: true, maxlength: 2048 },
     type: { type: String, default: "Load", trim: true, maxlength: 60 },
@@ -73,5 +81,6 @@ const testRunSchema = new mongoose.Schema(
 
 testRunSchema.index({ createdAt: -1 });
 testRunSchema.index({ status: 1, createdAt: -1 });
+testRunSchema.index({ projectId: 1, createdAt: -1 });
 
 export const TestRun = mongoose.model("TestRun", testRunSchema);

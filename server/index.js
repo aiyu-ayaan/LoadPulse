@@ -7,6 +7,7 @@ import dotenv from "dotenv";
 import express from "express";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
+import { Project } from "./models/Project.js";
 import { TestRun } from "./models/TestRun.js";
 import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun } from "./services/k6Runner.js";
 import { resolveScript } from "./utils/k6Script.js";
@@ -33,24 +34,56 @@ const parseCorsOrigins = (originValue) => {
     .filter(Boolean);
 };
 
-const markOrphanedRuns = async () => {
-  await TestRun.updateMany(
-    {
-      status: { $in: ["queued", "running"] },
-      endedAt: null,
-    },
-    {
-      $set: {
-        status: "failed",
-        endedAt: new Date(),
-        errorMessage: "Run interrupted because backend restarted before completion.",
-      },
-    },
-  );
+const toObjectIdString = (value) => String(value ?? "");
+const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+
+const emptyDashboard = () => ({
+  source: "empty",
+  currentRun: null,
+  kpis: {
+    totalRequests: 0,
+    avgResponseTimeMs: 0,
+    errorRatePct: 0,
+    throughputRps: 0,
+  },
+  responseTimeData: [],
+  rpsData: [],
+  statusData: [
+    { name: "200 OK", value: 0, color: "#3B82F6" },
+    { name: "4xx Client", value: 0, color: "#8B5CF6" },
+    { name: "5xx Server", value: 0, color: "#F43F5E" },
+  ],
+  statusCounts: {
+    ok2xx: 0,
+    client4xx: 0,
+    server5xx: 0,
+    other: 0,
+  },
+  activeRunCount: 0,
+});
+
+const toStatusData = (statusCounts) => {
+  const counts = {
+    ok2xx: Number(statusCounts?.ok2xx ?? 0),
+    client4xx: Number(statusCounts?.client4xx ?? 0),
+    server5xx: Number(statusCounts?.server5xx ?? 0),
+    other: Number(statusCounts?.other ?? 0),
+  };
+  const total = counts.ok2xx + counts.client4xx + counts.server5xx + counts.other;
+  const pct = (value) => (total > 0 ? Number(((value / total) * 100).toFixed(2)) : 0);
+
+  return [
+    { name: "200 OK", value: pct(counts.ok2xx), color: "#3B82F6" },
+    { name: "4xx Client", value: pct(counts.client4xx), color: "#8B5CF6" },
+    { name: "5xx Server", value: pct(counts.server5xx), color: "#F43F5E" },
+  ];
 };
 
 const toHistoryItem = (run) => ({
   id: run._id.toString(),
+  projectId: toObjectIdString(run.projectId),
+  projectName: run.projectName,
+  projectBaseUrl: run.projectBaseUrl,
   name: run.name,
   targetUrl: run.targetUrl,
   status: run.status,
@@ -68,36 +101,17 @@ const toHistoryItem = (run) => ({
 
 const toDashboardResponseFromRun = (run) => {
   if (!run) {
-    return {
-      source: "empty",
-      currentRun: null,
-      kpis: {
-        totalRequests: 0,
-        avgResponseTimeMs: 0,
-        errorRatePct: 0,
-        throughputRps: 0,
-      },
-      responseTimeData: [],
-      rpsData: [],
-      statusData: [
-        { name: "200 OK", value: 0, color: "#3B82F6" },
-        { name: "4xx Client", value: 0, color: "#8B5CF6" },
-        { name: "5xx Server", value: 0, color: "#F43F5E" },
-      ],
-    };
+    return emptyDashboard();
   }
 
   const liveMetrics = run.liveMetrics ?? {};
   const finalMetrics = run.finalMetrics ?? {};
-  const statusCodes = finalMetrics.statusCodes ?? liveMetrics.statusCodes ?? {
+  const statusCounts = finalMetrics.statusCodes ?? liveMetrics.statusCodes ?? {
     ok2xx: 0,
     client4xx: 0,
     server5xx: 0,
     other: 0,
   };
-  const totalStatuses =
-    statusCodes.ok2xx + statusCodes.client4xx + statusCodes.server5xx + (statusCodes.other ?? 0);
-  const safePercentage = (value) => (totalStatuses > 0 ? Number(((value / totalStatuses) * 100).toFixed(2)) : 0);
 
   return {
     source: "latest",
@@ -120,17 +134,125 @@ const toDashboardResponseFromRun = (run) => {
       time: point.time,
       rps: point.value,
     })),
-    statusData: [
-      { name: "200 OK", value: safePercentage(statusCodes.ok2xx), color: "#3B82F6" },
-      { name: "4xx Client", value: safePercentage(statusCodes.client4xx), color: "#8B5CF6" },
-      { name: "5xx Server", value: safePercentage(statusCodes.server5xx), color: "#F43F5E" },
-    ],
+    statusData: toStatusData(statusCounts),
+    statusCounts,
+    activeRunCount: run.status === "running" ? 1 : 0,
   };
 };
 
-const validateTestPayload = (payload) => {
+const combineLiveSnapshots = (snapshots) => {
+  if (snapshots.length === 0) {
+    return emptyDashboard();
+  }
+
+  const responseByTime = new Map();
+  const rpsByTime = new Map();
+  const statusCounts = {
+    ok2xx: 0,
+    client4xx: 0,
+    server5xx: 0,
+    other: 0,
+  };
+
+  let totalRequests = 0;
+  let weightedLatencySum = 0;
+  let weightedErrorSum = 0;
+  let throughputRps = 0;
+
+  for (const snapshot of snapshots) {
+    const reqCount = Number(snapshot?.kpis?.totalRequests ?? 0);
+    const avgLatency = Number(snapshot?.kpis?.avgResponseTimeMs ?? 0);
+    const errorRate = Number(snapshot?.kpis?.errorRatePct ?? 0);
+    const runRps = Number(snapshot?.kpis?.throughputRps ?? 0);
+
+    totalRequests += reqCount;
+    weightedLatencySum += avgLatency * Math.max(1, reqCount);
+    weightedErrorSum += errorRate * Math.max(1, reqCount);
+    throughputRps += runRps;
+
+    const counts = snapshot?.statusCounts ?? {};
+    statusCounts.ok2xx += Number(counts.ok2xx ?? 0);
+    statusCounts.client4xx += Number(counts.client4xx ?? 0);
+    statusCounts.server5xx += Number(counts.server5xx ?? 0);
+    statusCounts.other += Number(counts.other ?? 0);
+
+    for (const point of snapshot?.responseTimeData ?? []) {
+      if (!responseByTime.has(point.time)) {
+        responseByTime.set(point.time, { sum: 0, count: 0 });
+      }
+      const current = responseByTime.get(point.time);
+      current.sum += Number(point.ms ?? 0);
+      current.count += 1;
+    }
+
+    for (const point of snapshot?.rpsData ?? []) {
+      if (!rpsByTime.has(point.time)) {
+        rpsByTime.set(point.time, 0);
+      }
+      rpsByTime.set(point.time, rpsByTime.get(point.time) + Number(point.rps ?? 0));
+    }
+  }
+
+  const sortedResponse = [...responseByTime.entries()]
+    .map(([time, value]) => ({
+      time,
+      ms: value.count > 0 ? Number((value.sum / value.count).toFixed(2)) : 0,
+    }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  const sortedRps = [...rpsByTime.entries()]
+    .map(([time, value]) => ({ time, rps: Number(value.toFixed(2)) }))
+    .sort((a, b) => a.time.localeCompare(b.time));
+
+  const denominator = Math.max(1, totalRequests);
+  const avgResponseTimeMs = Number((weightedLatencySum / denominator).toFixed(2));
+  const errorRatePct = Number((weightedErrorSum / denominator).toFixed(2));
+
+  return {
+    source: "live",
+    currentRun:
+      snapshots.length === 1
+        ? snapshots[0].currentRun
+        : {
+            id: "multiple",
+            name: `${snapshots.length} tests running`,
+            status: "running",
+          },
+    kpis: {
+      totalRequests,
+      avgResponseTimeMs,
+      errorRatePct,
+      throughputRps: Number(throughputRps.toFixed(2)),
+    },
+    responseTimeData: sortedResponse,
+    rpsData: sortedRps,
+    statusData: toStatusData(statusCounts),
+    statusCounts,
+    activeRunCount: snapshots.length,
+    updatedAt: new Date().toISOString(),
+  };
+};
+
+const validateProjectPayload = (payload) => {
   const name = String(payload?.name ?? "").trim();
-  const targetUrl = String(payload?.targetUrl ?? "").trim();
+  const baseUrl = String(payload?.baseUrl ?? "").trim();
+  const description = String(payload?.description ?? "").trim();
+
+  if (!name || name.length < 3) {
+    return { error: "Project name must be at least 3 characters." };
+  }
+  if (!baseUrl || !/^https?:\/\//i.test(baseUrl)) {
+    return { error: "Project URL must be a valid http/https URL." };
+  }
+
+  return {
+    value: { name, baseUrl, description },
+  };
+};
+
+const validateTestPayload = (payload, project) => {
+  const name = String(payload?.name ?? "").trim();
+  const targetUrl = String(payload?.targetUrl ?? project.baseUrl).trim();
   const type = String(payload?.type ?? "Load").trim();
   const region = String(payload?.region ?? "us-east-1").trim();
   const duration = String(payload?.duration ?? "").trim();
@@ -152,6 +274,9 @@ const validateTestPayload = (payload) => {
 
   return {
     value: {
+      projectId: project._id,
+      projectName: project.name,
+      projectBaseUrl: project.baseUrl,
       name,
       targetUrl,
       type,
@@ -166,6 +291,85 @@ const validateTestPayload = (payload) => {
       }),
     },
   };
+};
+
+const markOrphanedRuns = async () => {
+  await TestRun.updateMany(
+    {
+      status: { $in: ["queued", "running"] },
+      endedAt: null,
+    },
+    {
+      $set: {
+        status: "failed",
+        endedAt: new Date(),
+        errorMessage: "Run interrupted because backend restarted before completion.",
+      },
+    },
+  );
+};
+
+const getProjectStatsMap = async () => {
+  const [runStats, latestRuns] = await Promise.all([
+    TestRun.aggregate([
+      {
+        $group: {
+          _id: "$projectId",
+          totalRuns: { $sum: 1 },
+          activeRuns: {
+            $sum: {
+              $cond: [{ $in: ["$status", ["running", "queued"]] }, 1, 0],
+            },
+          },
+          successfulRuns: {
+            $sum: {
+              $cond: [{ $eq: ["$status", "success"] }, 1, 0],
+            },
+          },
+        },
+      },
+    ]),
+    TestRun.aggregate([
+      { $sort: { createdAt: -1 } },
+      {
+        $group: {
+          _id: "$projectId",
+          lastRunAt: { $first: "$createdAt" },
+          lastRunStatus: { $first: "$status" },
+          lastRunName: { $first: "$name" },
+        },
+      },
+    ]),
+  ]);
+
+  const statsMap = new Map();
+  for (const stat of runStats) {
+    statsMap.set(toObjectIdString(stat._id), {
+      totalRuns: stat.totalRuns ?? 0,
+      activeRuns: stat.activeRuns ?? 0,
+      successfulRuns: stat.successfulRuns ?? 0,
+      successRatePct:
+        (stat.totalRuns ?? 0) > 0 ? Number((((stat.successfulRuns ?? 0) / stat.totalRuns) * 100).toFixed(1)) : 0,
+    });
+  }
+
+  for (const latest of latestRuns) {
+    const key = toObjectIdString(latest._id);
+    const current = statsMap.get(key) ?? {
+      totalRuns: 0,
+      activeRuns: 0,
+      successfulRuns: 0,
+      successRatePct: 0,
+    };
+    statsMap.set(key, {
+      ...current,
+      lastRunAt: latest.lastRunAt ?? null,
+      lastRunStatus: latest.lastRunStatus ?? null,
+      lastRunName: latest.lastRunName ?? null,
+    });
+  }
+
+  return statsMap;
 };
 
 await mongoose.connect(mongoUri, { dbName: databaseName });
@@ -199,8 +403,69 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
+app.get("/api/projects", async (_req, res) => {
+  const [projects, statsMap] = await Promise.all([Project.find().sort({ createdAt: -1 }).lean(), getProjectStatsMap()]);
+  res.json({
+    data: projects.map((project) => ({
+      id: project._id.toString(),
+      name: project.name,
+      baseUrl: project.baseUrl,
+      description: project.description ?? "",
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      stats: statsMap.get(project._id.toString()) ?? {
+        totalRuns: 0,
+        activeRuns: 0,
+        successfulRuns: 0,
+        successRatePct: 0,
+        lastRunAt: null,
+        lastRunStatus: null,
+        lastRunName: null,
+      },
+    })),
+  });
+});
+
+app.post("/api/projects", async (req, res) => {
+  const { value, error } = validateProjectPayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const project = await Project.create(value);
+  return res.status(201).json({
+    data: {
+      id: project._id.toString(),
+      name: project.name,
+      baseUrl: project.baseUrl,
+      description: project.description ?? "",
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+      stats: {
+        totalRuns: 0,
+        activeRuns: 0,
+        successfulRuns: 0,
+        successRatePct: 0,
+        lastRunAt: null,
+        lastRunStatus: null,
+        lastRunName: null,
+      },
+    },
+  });
+});
+
 app.post("/api/tests/run", async (req, res) => {
-  const { value, error } = validateTestPayload(req.body);
+  const projectId = String(req.body?.projectId ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "A valid projectId is required." });
+  }
+
+  const project = await Project.findById(projectId);
+  if (!project) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
+  const { value, error } = validateTestPayload(req.body, project);
   if (error) {
     return res.status(400).json({ error });
   }
@@ -230,6 +495,7 @@ app.post("/api/tests/run", async (req, res) => {
 app.get("/api/tests/history", async (req, res) => {
   const search = String(req.query.search ?? "").trim();
   const status = String(req.query.status ?? "").trim();
+  const projectId = String(req.query.projectId ?? "").trim();
   const limit = Math.min(Number(req.query.limit ?? 100) || 100, 250);
 
   const filter = {};
@@ -243,6 +509,12 @@ app.get("/api/tests/history", async (req, res) => {
   if (status) {
     filter.status = status;
   }
+  if (projectId) {
+    if (!isValidObjectId(projectId)) {
+      return res.status(400).json({ error: "Invalid projectId." });
+    }
+    filter.projectId = projectId;
+  }
 
   const runs = await TestRun.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
   const total = await TestRun.countDocuments(filter);
@@ -252,8 +524,18 @@ app.get("/api/tests/history", async (req, res) => {
   });
 });
 
-app.delete("/api/tests/history", async (_req, res) => {
-  const result = await TestRun.deleteMany({ status: { $ne: "running" } });
+app.delete("/api/tests/history", async (req, res) => {
+  const projectId = String(req.query.projectId ?? "").trim();
+  const filter = { status: { $nin: ["running", "queued"] } };
+
+  if (projectId) {
+    if (!isValidObjectId(projectId)) {
+      return res.status(400).json({ error: "Invalid projectId." });
+    }
+    filter.projectId = projectId;
+  }
+
+  const result = await TestRun.deleteMany(filter);
   res.json({
     deletedCount: result.deletedCount ?? 0,
     message: "Completed test history cleared.",
@@ -293,13 +575,22 @@ app.get("/api/tests/:id", async (req, res) => {
   });
 });
 
-app.get("/api/dashboard/overview", async (_req, res) => {
-  const liveSnapshots = getActiveRunSnapshots();
-  const recentRuns = await TestRun.find().sort({ createdAt: -1 }).limit(8).lean();
+app.get("/api/dashboard/overview", async (req, res) => {
+  const projectId = String(req.query.projectId ?? "").trim();
+  const hasProjectFilter = Boolean(projectId);
+  if (hasProjectFilter && !isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid projectId." });
+  }
+
+  const queryFilter = hasProjectFilter ? { projectId } : {};
+  const [liveSnapshots, recentRuns] = await Promise.all([
+    Promise.resolve(getActiveRunSnapshots(hasProjectFilter ? projectId : undefined)),
+    TestRun.find(queryFilter).sort({ createdAt: -1 }).limit(8).lean(),
+  ]);
 
   if (liveSnapshots.length > 0) {
     return res.json({
-      ...liveSnapshots[0],
+      ...combineLiveSnapshots(liveSnapshots),
       recentRuns: recentRuns.map(toHistoryItem),
     });
   }

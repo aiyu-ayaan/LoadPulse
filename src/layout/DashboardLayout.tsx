@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { useState } from "react";
+import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
+  FolderKanban,
   LayoutDashboard,
   PlusCircle,
   History,
@@ -15,23 +16,26 @@ import {
   Activity,
   Menu,
   X,
-  Sparkles
-} from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+  Sparkles,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { useProjects } from "../context/useProjects";
 
 const menuItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/', end: true },
-  { icon: PlusCircle, label: 'New Test', path: '/new-test' },
-  { icon: History, label: 'Test History', path: '/history' },
-  { icon: BarChart3, label: 'Reports', path: '/reports' },
-  { icon: Puzzle, label: 'Integrations', path: '/integrations' },
-  { icon: Settings, label: 'Settings', path: '/settings' },
+  { icon: FolderKanban, label: "Projects", path: "/projects" },
+  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
+  { icon: PlusCircle, label: "New Test", path: "/new-test" },
+  { icon: History, label: "Test History", path: "/history" },
+  { icon: BarChart3, label: "Reports", path: "/reports" },
+  { icon: Puzzle, label: "Integrations", path: "/integrations" },
+  { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
 export const DashboardLayout = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const location = useLocation();
+  const { projects, selectedProject, selectedProjectId, selectProject } = useProjects();
 
   return (
     <div className="relative min-h-screen overflow-hidden text-foreground">
@@ -50,8 +54,9 @@ export const DashboardLayout = () => {
       </AnimatePresence>
 
       <aside
-        className={`glass-panel fixed inset-y-3 left-3 z-40 flex w-[272px] flex-col overflow-hidden rounded-2xl transition-transform duration-300 lg:translate-x-0 ${isMobileSidebarOpen ? 'translate-x-0' : '-translate-x-[115%]'
-          } ${isCollapsed ? 'lg:w-[92px]' : 'lg:w-[272px]'}`}
+        className={`glass-panel fixed inset-y-3 left-3 z-40 flex w-[272px] flex-col overflow-hidden rounded-2xl transition-transform duration-300 lg:translate-x-0 ${
+          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-[115%]"
+        } ${isCollapsed ? "lg:w-[92px]" : "lg:w-[272px]"}`}
       >
         <div className="flex items-center gap-3 border-b border-white/10 px-5 py-5">
           <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-secondary-purple to-secondary-teal animate-logo-pulse">
@@ -82,37 +87,29 @@ export const DashboardLayout = () => {
             <NavLink
               key={item.path}
               to={item.path}
-              end={item.end}
               onClick={() => setIsMobileSidebarOpen(false)}
               className={({ isActive }) =>
-                `group flex items-center gap-3 rounded-2xl px-3 py-3 transition-all duration-200 ${isActive
-                  ? 'neon-border bg-primary/20 text-primary'
-                  : 'text-slate-400 hover:bg-white/[0.07] hover:text-white'
+                `group flex items-center gap-3 rounded-2xl px-3 py-3 transition-all duration-200 ${
+                  isActive ? "neon-border bg-primary/20 text-primary" : "text-slate-400 hover:bg-white/[0.07] hover:text-white"
                 }`
               }
             >
               <item.icon className="h-5 w-5 min-w-[20px]" />
-              {!isCollapsed ? (
-                <span className="font-medium">
-                  {item.label}
-                </span>
-              ) : (
-                <span className="sr-only">{item.label}</span>
-              )}
+              {!isCollapsed ? <span className="font-medium">{item.label}</span> : <span className="sr-only">{item.label}</span>}
             </NavLink>
           ))}
         </nav>
 
         {!isCollapsed && (
           <div className="mx-3 mb-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">Live Cluster</p>
-            <p className="mt-2 text-sm font-semibold">us-east-1</p>
-            <p className="mt-2 text-xs text-muted">17 tests running across 4 regions</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">Selected Project</p>
+            <p className="mt-2 text-sm font-semibold">{selectedProject?.name ?? "No project selected"}</p>
+            <p className="mt-2 truncate text-xs text-muted">{selectedProject?.baseUrl ?? "Create a project to begin testing"}</p>
           </div>
         )}
       </aside>
 
-      <div className={`flex min-h-screen flex-col transition-[margin] duration-300 ${isCollapsed ? 'lg:ml-[92px]' : 'lg:ml-[272px]'}`}>
+      <div className={`flex min-h-screen flex-col transition-[margin] duration-300 ${isCollapsed ? "lg:ml-[92px]" : "lg:ml-[272px]"}`}>
         <header className="glass-panel sticky top-0 z-20 mx-3 mt-3 flex h-[74px] items-center justify-between rounded-2xl px-4 md:px-6">
           <div className="flex min-w-0 items-center gap-3">
             <button
@@ -133,17 +130,39 @@ export const DashboardLayout = () => {
 
             <div className="hidden md:block">
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">LoadPulse Console</p>
-              <h2 className="text-lg font-semibold tracking-tight">Performance Workspace</h2>
+              <h2 className="text-lg font-semibold tracking-tight">Project Performance Workspace</h2>
             </div>
           </div>
 
           <div className="flex items-center gap-2 md:gap-3">
+            <div className="hidden md:block">
+              <select
+                value={selectedProjectId ?? ""}
+                onChange={(event) => {
+                  if (event.target.value) {
+                    selectProject(event.target.value);
+                  }
+                }}
+                className="h-11 min-w-[220px] rounded-2xl border border-white/[0.12] bg-white/5 px-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+              >
+                {projects.length === 0 ? (
+                  <option value="">Create a project first</option>
+                ) : (
+                  projects.map((project) => (
+                    <option key={project.id} value={project.id} className="bg-slate-900">
+                      {project.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+
             <div className="relative hidden md:block">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search tests, reports, traces..."
-                className="h-11 w-[290px] rounded-2xl border border-white/[0.12] bg-white/5 py-2 pl-10 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                placeholder="Search tests and reports..."
+                className="h-11 w-[260px] rounded-2xl border border-white/[0.12] bg-white/5 py-2 pl-10 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
               />
             </div>
 
@@ -154,7 +173,7 @@ export const DashboardLayout = () => {
 
             <button className="hidden h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/10 md:flex">
               <Sparkles className="h-4 w-4 text-secondary-teal" />
-              AI Insights
+              Simple Insights
             </button>
 
             <div className="h-8 w-px bg-white/10" />
@@ -164,7 +183,7 @@ export const DashboardLayout = () => {
                 <User size={20} className="text-white" />
               </div>
               <div className="hidden sm:block">
-                <p className="text-sm font-semibold">Dev Engineer</p>
+                <p className="text-sm font-semibold">Team Owner</p>
                 <p className="text-xs text-muted">Pro Plan</p>
               </div>
             </div>
@@ -188,3 +207,4 @@ export const DashboardLayout = () => {
     </div>
   );
 };
+

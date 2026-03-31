@@ -120,9 +120,10 @@ const parseSummaryMetrics = (summary, fallbackMetrics) => {
   };
 };
 
-const createState = (runId, runName, workingDir, filePaths) => ({
+const createState = (runId, runName, projectId, workingDir, filePaths) => ({
   runId,
   runName,
+  projectId,
   workingDir,
   filePaths,
   process: null,
@@ -275,6 +276,7 @@ const toSnapshotPayload = (state) => {
 
   return {
     source: "live",
+    projectId: state.projectId,
     currentRun: {
       id: state.runId,
       name: state.runName,
@@ -295,6 +297,7 @@ const toSnapshotPayload = (state) => {
       rps: point.rps,
     })),
     statusData: liveMetrics.statusData,
+    statusCounts: liveMetrics.statusCodes,
     updatedAt: new Date().toISOString(),
   };
 };
@@ -424,6 +427,7 @@ const finalize = async (state, exitCode) => {
   if (socketServer) {
     socketServer.emit("test:run:completed", {
       runId: state.runId,
+      projectId: state.projectId,
       status: isSuccess ? "success" : "failed",
       errorMessage,
     });
@@ -444,10 +448,11 @@ export const setSocketServer = (ioServer) => {
   socketServer = ioServer;
 };
 
-export const getActiveRunSnapshots = () =>
+export const getActiveRunSnapshots = (projectId) =>
   [...activeRuns.values()]
     .map((runState) => runState.latestSnapshot)
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((snapshot) => !projectId || snapshot.projectId === projectId);
 
 export const hasActiveRun = (runId) => activeRuns.has(runId);
 
@@ -462,7 +467,7 @@ export const startK6Run = async (testRunDocument) => {
 
   await fs.promises.writeFile(scriptPath, testRunDocument.script, "utf8");
 
-  const state = createState(runId, testRunDocument.name, runWorkDir, {
+  const state = createState(runId, testRunDocument.name, testRunDocument.projectId.toString(), runWorkDir, {
     scriptPath,
     metricsPath,
     summaryPath,

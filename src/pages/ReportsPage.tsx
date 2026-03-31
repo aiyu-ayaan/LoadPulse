@@ -19,6 +19,7 @@ import {
   Network
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useProjects } from '../context/useProjects';
 
 const detailedLatencyData = Array.from({ length: 24 }, (_, i) => ({
   time: `${i}:00`,
@@ -38,6 +39,8 @@ const bandwidthBars = Array.from({ length: 40 }, () => ({
 }));
 
 export const ReportsPage = () => {
+  const { selectedProject } = useProjects();
+
   return (
     <div className="space-y-8 pb-12">
       <div className="flex items-center justify-between">
@@ -48,7 +51,7 @@ export const ReportsPage = () => {
           <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Full Analytical Report</h1>
             <div className="flex items-center gap-2 text-sm text-slate-500 mt-1">
-              <span>Run #8421</span>
+              <span>{selectedProject?.name}</span>
               <div className="w-1 h-1 rounded-full bg-slate-700" />
               <span>Mar 31, 2026</span>
               <div className="w-1 h-1 rounded-full bg-slate-700" />

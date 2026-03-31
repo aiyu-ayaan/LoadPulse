@@ -1,20 +1,10 @@
 import { useEffect, useState } from "react";
-import {
-  Play,
-  Code2,
-  Settings2,
-  Globe,
-  Clock,
-  Users,
-  ChevronDown,
-  Save,
-  Terminal,
-} from "lucide-react";
+import { Play, Code2, Settings2, Globe, Clock, Users, ChevronDown, Save, Terminal, FolderKanban } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { runTest } from "../lib/api";
-
-const defaultUrl = "https://api.loadpulse.dev/v1/health";
+import { useProjects } from "../context/useProjects";
+import { EmptyState } from "../components/EmptyState";
 
 const buildTemplateScript = (url: string, vus: number, duration: string) => `import http from 'k6/http';
 import { sleep, check } from 'k6';
@@ -34,17 +24,29 @@ export default function () {
 
 export const NewTestPage = () => {
   const navigate = useNavigate();
-  const [name, setName] = useState("Core API Smoke Test");
-  const [targetUrl, setTargetUrl] = useState(defaultUrl);
-  const [vus, setVus] = useState(50);
-  const [duration, setDuration] = useState("5m");
+  const { selectedProject } = useProjects();
+
+  const [name, setName] = useState("Homepage Experience Check");
+  const [targetUrl, setTargetUrl] = useState(selectedProject?.baseUrl ?? "https://");
+  const [vus, setVus] = useState(20);
+  const [duration, setDuration] = useState("30s");
   const [type, setType] = useState("Load");
   const [region] = useState("us-east-1");
-  const [script, setScript] = useState(buildTemplateScript(defaultUrl, 50, "5m"));
+  const [script, setScript] = useState(buildTemplateScript(selectedProject?.baseUrl ?? "https://", 20, "30s"));
   const [isScriptDirty, setIsScriptDirty] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      return;
+    }
+    setTargetUrl(selectedProject.baseUrl);
+    if (!isScriptDirty) {
+      setScript(buildTemplateScript(selectedProject.baseUrl, vus, duration));
+    }
+  }, [selectedProject, isScriptDirty, vus, duration]);
 
   useEffect(() => {
     if (!isScriptDirty) {
@@ -53,12 +55,18 @@ export const NewTestPage = () => {
   }, [targetUrl, vus, duration, isScriptDirty]);
 
   const handleRunTest = async () => {
+    if (!selectedProject) {
+      setError("Please create or select a project first.");
+      return;
+    }
+
     setIsRunning(true);
     setError(null);
     setSuccessMessage(null);
 
     try {
       await runTest({
+        projectId: selectedProject.id,
         name,
         targetUrl,
         vus,
@@ -67,8 +75,8 @@ export const NewTestPage = () => {
         type,
         region,
       });
-      setSuccessMessage("Test queued successfully. Redirecting to dashboard...");
-      window.setTimeout(() => navigate("/"), 700);
+      setSuccessMessage("Test started. Live results are now visible on your dashboard.");
+      window.setTimeout(() => navigate("/dashboard"), 800);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to run test.");
     } finally {
@@ -76,13 +84,25 @@ export const NewTestPage = () => {
     }
   };
 
+  if (!selectedProject) {
+    return (
+      <EmptyState
+        icon={FolderKanban}
+        title="No Project Selected"
+        description="Create a project with your website URL first, then you can run tests."
+        actionText="Go To Projects"
+        onAction={() => navigate("/projects")}
+      />
+    );
+  }
+
   return (
     <div className="mx-auto max-w-6xl space-y-8 pb-8">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight text-white">New Test</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-white">Run New Test</h1>
           <p className="text-sm text-muted md:text-base">
-            Configure URL, load profile, and custom k6 script for your next performance run.
+            Project: <span className="font-semibold text-white">{selectedProject.name}</span> • {selectedProject.baseUrl}
           </p>
         </div>
 
@@ -110,7 +130,7 @@ export const NewTestPage = () => {
           <div className="glass-panel space-y-5 rounded-2xl p-6">
             <div className="mb-2 flex items-center gap-2 border-b border-white/10 pb-4">
               <Settings2 className="h-5 w-5 text-primary" />
-              <h3 className="font-bold">Test Configuration</h3>
+              <h3 className="font-bold">Test Setup</h3>
             </div>
 
             <div className="space-y-2">
@@ -124,25 +144,24 @@ export const NewTestPage = () => {
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-muted">URL</label>
+              <label className="text-xs font-semibold uppercase tracking-wider text-muted">Website URL</label>
               <div className="relative">
                 <Globe className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
                 <input
                   type="text"
                   value={targetUrl}
                   onChange={(event) => setTargetUrl(event.target.value)}
-                  placeholder="https://api.loadpulse.dev/v1/health"
                   className="w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition-colors focus:border-primary/50"
                 />
               </div>
             </div>
 
             <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Load Configuration</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Load Profile</p>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">VU</label>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-muted">Virtual Users</label>
                   <div className="relative">
                     <Users className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
                     <input
@@ -169,7 +188,7 @@ export const NewTestPage = () => {
               </div>
 
               <div className="space-y-2">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted">Test Type</label>
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-muted">Test Style</label>
                 <div className="relative">
                   <select
                     value={type}
@@ -199,22 +218,20 @@ export const NewTestPage = () => {
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             disabled={isRunning}
-            onClick={handleRunTest}
+            onClick={() => void handleRunTest()}
             className={`flex w-full items-center justify-center gap-2 rounded-2xl border py-4 font-bold transition-all shadow-[0_0_32px_rgba(59,130,246,0.45)] ${
-              isRunning
-                ? "cursor-not-allowed border-transparent bg-slate-700 text-slate-200"
-                : "animate-pulse-glow border-primary/40 bg-primary text-white hover:bg-primary/90"
+              isRunning ? "cursor-not-allowed border-transparent bg-slate-700 text-slate-200" : "animate-pulse-glow border-primary/40 bg-primary text-white hover:bg-primary/90"
             }`}
           >
             {isRunning ? (
               <div className="flex items-center gap-3">
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                Initializing...
+                Starting...
               </div>
             ) : (
               <>
                 <Play className="h-5 w-5 fill-current" />
-                Run Test
+                Start Test
               </>
             )}
           </motion.button>
@@ -225,7 +242,7 @@ export const NewTestPage = () => {
             <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.04] px-6 py-4">
               <div className="flex items-center gap-2">
                 <Code2 className="h-5 w-5 text-secondary-purple" />
-                <h3 className="font-bold">k6 Script Editor</h3>
+                <h3 className="font-bold">Advanced k6 Script (Optional)</h3>
               </div>
               <div className="flex gap-2">
                 <div className="h-3 w-3 rounded-full bg-rose-500/50" />
@@ -248,12 +265,12 @@ export const NewTestPage = () => {
             </div>
 
             <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.04] px-6 py-3 text-xs text-slate-500">
-              <span>ES6 Module Support</span>
+              <span>Template script auto-updates until you edit manually.</span>
               <div className="flex gap-4">
                 <span className="flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Syntax OK
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Script Ready
                 </span>
-                <span>Custom script enabled</span>
+                <span>{selectedProject.name}</span>
               </div>
             </div>
           </div>
@@ -262,3 +279,4 @@ export const NewTestPage = () => {
     </div>
   );
 };
+

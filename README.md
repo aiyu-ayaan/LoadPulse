@@ -8,9 +8,11 @@ LoadPulse now includes:
 
 ## Current scope implemented
 
-1. Run a new k6 test from the **New Test** page
-2. Stream live metrics to the **Dashboard** in real time
-3. Persist and show run history in **Test History**
+1. Create multiple **Projects** (each with its own website URL)
+2. Run tests per project (multiple projects can run tests simultaneously)
+3. Stream live metrics to the **Dashboard** in real time
+4. Persist and show per-project run history in **Test History**
+5. Non-technical dashboard language and health summary for easier understanding
 
 ## Environment
 
@@ -44,12 +46,14 @@ npm run dev
 
 ## API endpoints
 
+- `GET /api/projects` - list projects with run statistics
+- `POST /api/projects` - create a project
 - `POST /api/tests/run` - queue a new k6 test run
-- `GET /api/dashboard/overview` - dashboard data (live or latest run)
-- `GET /api/tests/history` - test run history
+- `GET /api/dashboard/overview?projectId=...` - dashboard data for a project
+- `GET /api/tests/history?projectId=...` - test run history for a project
 - `GET /api/tests/:id` - run details
 - `DELETE /api/tests/:id` - delete one run (non-running only)
-- `DELETE /api/tests/history` - clear completed history
+- `DELETE /api/tests/history?projectId=...` - clear completed history for a project
 
 ## Docker deployment
 

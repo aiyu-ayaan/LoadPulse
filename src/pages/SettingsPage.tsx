@@ -9,13 +9,16 @@ import {
   Trash2,
   Lock
 } from 'lucide-react';
+import { useProjects } from '../context/useProjects';
 
 export const SettingsPage = () => {
+  const { selectedProject } = useProjects();
+
   return (
     <div className="max-w-4xl mx-auto space-y-8 pb-12">
       <div>
         <h1 className="text-3xl font-bold text-white tracking-tight">Settings</h1>
-        <p className="text-slate-400">Manage your account preferences, billing, and security.</p>
+        <p className="text-slate-400">Project: {selectedProject?.name} • Manage project preferences and team defaults.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-8">

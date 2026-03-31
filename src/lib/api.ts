@@ -1,3 +1,23 @@
+export interface ProjectStats {
+  totalRuns: number;
+  activeRuns: number;
+  successfulRuns: number;
+  successRatePct: number;
+  lastRunAt: string | null;
+  lastRunStatus: string | null;
+  lastRunName: string | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  baseUrl: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  stats: ProjectStats;
+}
+
 export interface DashboardKpis {
   totalRequests: number;
   avgResponseTimeMs: number;
@@ -16,11 +36,15 @@ export interface DashboardOverview {
   responseTimeData: Array<{ time: string; ms: number }>;
   rpsData: Array<{ time: string; rps: number }>;
   statusData: Array<{ name: string; value: number; color: string }>;
+  activeRunCount: number;
   recentRuns: TestHistoryItem[];
 }
 
 export interface TestHistoryItem {
   id: string;
+  projectId: string;
+  projectName: string;
+  projectBaseUrl: string;
   name: string;
   targetUrl: string;
   status: string;
@@ -42,6 +66,7 @@ interface TestHistoryResponse {
 }
 
 export interface RunTestPayload {
+  projectId: string;
   name: string;
   targetUrl: string;
   type: string;
@@ -80,7 +105,16 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return (await response.json()) as T;
 };
 
-export const fetchDashboardOverview = () => request<DashboardOverview>("/api/dashboard/overview");
+export const fetchProjects = () => request<{ data: Project[] }>("/api/projects");
+
+export const createProject = (payload: { name: string; baseUrl: string; description?: string }) =>
+  request<{ data: Project }>("/api/projects", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const fetchDashboardOverview = (projectId: string) =>
+  request<DashboardOverview>(`/api/dashboard/overview?projectId=${encodeURIComponent(projectId)}`);
 
 export const runTest = (payload: RunTestPayload) =>
   request<{ id: string; status: string; message: string }>("/api/tests/run", {
@@ -88,13 +122,17 @@ export const runTest = (payload: RunTestPayload) =>
     body: JSON.stringify(payload),
   });
 
-export const fetchTestHistory = (search: string) => {
-  const query = search ? `?search=${encodeURIComponent(search)}` : "";
-  return request<TestHistoryResponse>(`/api/tests/history${query}`);
+export const fetchTestHistory = (projectId: string, search: string) => {
+  const query = new URLSearchParams();
+  query.set("projectId", projectId);
+  if (search) {
+    query.set("search", search);
+  }
+  return request<TestHistoryResponse>(`/api/tests/history?${query.toString()}`);
 };
 
-export const clearHistory = () =>
-  request<{ deletedCount: number; message: string }>("/api/tests/history", {
+export const clearHistory = (projectId: string) =>
+  request<{ deletedCount: number; message: string }>(`/api/tests/history?projectId=${encodeURIComponent(projectId)}`, {
     method: "DELETE",
   });
 

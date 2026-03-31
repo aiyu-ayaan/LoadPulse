@@ -9,6 +9,7 @@ import {
   Webhook
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useProjects } from '../context/useProjects';
 
 const integrations = [
   {
@@ -46,12 +47,14 @@ const integrations = [
 ];
 
 export const IntegrationsPage = () => {
+  const { selectedProject } = useProjects();
+
   return (
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Integrations</h1>
-          <p className="text-slate-400">Connect LoadPulse with your existing workflow and tools.</p>
+          <p className="text-slate-400">Project: {selectedProject?.name} • Connect this project to your workflow tools.</p>
         </div>
         <button className="glass px-4 py-2 rounded-xl text-sm font-medium hover:bg-white/5 transition-colors flex items-center gap-2">
           <ShieldCheck className="w-4 h-4" /> API Keys
