@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   FolderKanban,
@@ -7,7 +7,6 @@ import {
   History,
   BarChart3,
   Settings,
-  Puzzle,
   PanelLeftClose,
   PanelLeftOpen,
   Search,
@@ -15,8 +14,9 @@ import {
   Activity,
   Menu,
   X,
-  Sparkles,
   LogOut,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjects } from "../context/useProjects";
@@ -29,16 +29,28 @@ const menuItems = [
   { icon: PlusCircle, label: "New Test", path: "/new-test" },
   { icon: History, label: "Test History", path: "/history" },
   { icon: BarChart3, label: "Reports", path: "/reports" },
-  { icon: Puzzle, label: "Integrations", path: "/integrations" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
 export const DashboardLayout = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const location = useLocation();
   const { projects, selectedProject, selectedProjectId, selectProject } = useProjects();
   const { user, signOut } = useAuth();
+  const projectMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!projectMenuRef.current?.contains(event.target as Node)) {
+        setIsProjectMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", handlePointerDown);
+    return () => window.removeEventListener("mousedown", handlePointerDown);
+  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden text-foreground">
@@ -138,26 +150,49 @@ export const DashboardLayout = () => {
           </div>
 
           <div className="flex items-center gap-2 md:gap-3">
-            <div className="hidden md:block">
-              <select
-                value={selectedProjectId ?? ""}
-                onChange={(event) => {
-                  if (event.target.value) {
-                    selectProject(event.target.value);
-                  }
-                }}
-                className="h-11 min-w-[220px] rounded-2xl border border-white/[0.12] bg-white/5 px-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+            <div className="relative hidden md:block" ref={projectMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsProjectMenuOpen((previous) => !previous)}
+                className="flex h-11 min-w-[220px] items-center justify-between rounded-2xl border border-white/[0.12] bg-white/5 px-4 text-left text-sm text-slate-100 transition hover:bg-white/[0.08] focus:border-primary/60 focus:outline-none"
               >
-                {projects.length === 0 ? (
-                  <option value="">Create a project first</option>
-                ) : (
-                  projects.map((project) => (
-                    <option key={project.id} value={project.id} className="bg-slate-900">
-                      {project.name}
-                    </option>
-                  ))
-                )}
-              </select>
+                <span className="truncate">{selectedProject?.name ?? "Create a project first"}</span>
+                <ChevronDown
+                  className={`ml-3 h-4 w-4 shrink-0 text-slate-400 transition-transform ${isProjectMenuOpen ? "rotate-180" : ""}`}
+                />
+              </button>
+
+              {isProjectMenuOpen && (
+                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 min-w-[260px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-[0_24px_48px_rgba(2,6,23,0.55)] backdrop-blur-xl">
+                  {projects.length === 0 ? (
+                    <div className="rounded-xl px-3 py-3 text-sm text-slate-400">Create a project first</div>
+                  ) : (
+                    projects.map((project) => {
+                      const isSelected = project.id === selectedProjectId;
+
+                      return (
+                        <button
+                          key={project.id}
+                          type="button"
+                          onClick={() => {
+                            selectProject(project.id);
+                            setIsProjectMenuOpen(false);
+                          }}
+                          className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm transition ${
+                            isSelected ? "bg-primary/20 text-white" : "text-slate-200 hover:bg-white/[0.06]"
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-medium">{project.name}</p>
+                            <p className="truncate text-xs text-slate-400">{project.baseUrl}</p>
+                          </div>
+                          {isSelected && <Check className="ml-3 h-4 w-4 shrink-0 text-primary" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="relative hidden md:block">
@@ -173,12 +208,6 @@ export const DashboardLayout = () => {
               <Bell size={20} />
               <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
             </button>
-
-            <button className="hidden h-10 items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/10 md:flex">
-              <Sparkles className="h-4 w-4 text-secondary-teal" />
-              Simple Insights
-            </button>
-
             <div className="h-8 w-px bg-white/10" />
 
             <div className="flex items-center gap-2 md:gap-3">

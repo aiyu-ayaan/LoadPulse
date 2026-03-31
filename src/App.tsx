@@ -5,7 +5,6 @@ import { DashboardPage } from './pages/DashboardPage';
 import { NewTestPage } from './pages/NewTestPage';
 import { TestHistoryPage } from './pages/TestHistoryPage';
 import { ReportsPage } from './pages/ReportsPage';
-import { IntegrationsPage } from './pages/IntegrationsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectRequired } from './components/ProjectRequired';
@@ -46,7 +45,7 @@ function App() {
           <Route path="/history" element={<ProjectRequired><TestHistoryPage /></ProjectRequired>} />
           <Route path="/tests/:testId" element={<ProjectRequired><TestDetailsPage /></ProjectRequired>} />
           <Route path="/reports" element={<ProjectRequired><ReportsPage /></ProjectRequired>} />
-          <Route path="/integrations" element={<ProjectRequired><IntegrationsPage /></ProjectRequired>} />
+          <Route path="/integrations" element={<Navigate to="/settings" replace />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
