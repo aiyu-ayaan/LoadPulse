@@ -284,9 +284,9 @@ export const DashboardPage = () => {
           </div>
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-            <motion.section 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }} 
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               className="premium-card h-[390px] p-6 xl:col-span-2"
             >
               <div className="mb-6">
@@ -302,19 +302,19 @@ export const DashboardPage = () => {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsla(210, 40%, 98%, 0.05)" vertical={false} />
-                  <XAxis 
-                    dataKey="time" 
-                    stroke="hsla(210, 40%, 98%, 0.4)" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fontSize: 10, fontWeight: 600 }} 
-                    dy={10} 
+                  <XAxis
+                    dataKey="time"
+                    stroke="hsla(210, 40%, 98%, 0.4)"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fontWeight: 600 }}
+                    dy={10}
                   />
-                  <YAxis 
-                    stroke="hsla(210, 40%, 98%, 0.4)" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fontSize: 10, fontWeight: 600 }} 
+                  <YAxis
+                    stroke="hsla(210, 40%, 98%, 0.4)"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fontWeight: 600 }}
                   />
                   <Tooltip
                     content={({ active, payload }) => {
@@ -329,23 +329,23 @@ export const DashboardPage = () => {
                       return null;
                     }}
                   />
-                  <Area 
-                    type="monotone" 
-                    dataKey="ms" 
-                    stroke="hsl(217, 91%, 60%)" 
-                    fillOpacity={1} 
-                    fill="url(#colorMs)" 
-                    strokeWidth={3} 
+                  <Area
+                    type="monotone"
+                    dataKey="ms"
+                    stroke="hsl(217, 91%, 60%)"
+                    fillOpacity={1}
+                    fill="url(#colorMs)"
+                    strokeWidth={3}
                     animationDuration={1500}
                   />
                 </AreaChart>
               </ResponsiveContainer>
             </motion.section>
 
-            <motion.section 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              transition={{ delay: 0.1 }} 
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1 }}
               className="premium-card flex min-h-[390px] flex-col p-6"
             >
               <div className="mb-6">
@@ -357,12 +357,12 @@ export const DashboardPage = () => {
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>
                     {/* Background Track */}
-                    <Pie 
-                      data={[{ value: 100 }]} 
-                      cx="50%" cy="50%" 
-                      innerRadius={68} outerRadius={82} 
-                      dataKey="value" 
-                      fill="hsla(210, 40%, 98%, 0.03)" 
+                    <Pie
+                      data={[{ value: 100 }]}
+                      cx="50%" cy="50%"
+                      innerRadius={68} outerRadius={82}
+                      dataKey="value"
+                      fill="hsla(210, 40%, 98%, 0.03)"
                       stroke="none"
                       isAnimationActive={false}
                     />
@@ -378,9 +378,9 @@ export const DashboardPage = () => {
                       cornerRadius={6}
                     >
                       {visibleStatusData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={entry.color} 
+                        <Cell
+                          key={`cell-${index}`}
+                          fill={entry.color}
                           className="hover:opacity-80 transition-opacity outline-none"
                         />
                       ))}
@@ -402,7 +402,7 @@ export const DashboardPage = () => {
                 </ResponsiveContainer>
 
                 <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <motion.span 
+                  <motion.span
                     initial={{ scale: 0.5, opacity: 0 }}
                     animate={{ scale: 1, opacity: 1 }}
                     transition={{ delay: 0.3, type: "spring" }}
@@ -416,8 +416,8 @@ export const DashboardPage = () => {
 
               <div className="mt-8 space-y-2.5">
                 {overview.statusData.map((statusItem, idx) => (
-                  <motion.div 
-                    key={statusItem.name} 
+                  <motion.div
+                    key={statusItem.name}
                     initial={{ opacity: 0, x: -10 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: 0.4 + (idx * 0.1) }}
@@ -439,10 +439,10 @@ export const DashboardPage = () => {
               </div>
             </motion.section>
 
-            <motion.section 
-              initial={{ opacity: 0, y: 20 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              transition={{ delay: 0.15 }} 
+            <motion.section
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
               className="premium-card h-[300px] p-6 xl:col-span-3"
             >
               <div className="mb-6">
@@ -452,18 +452,18 @@ export const DashboardPage = () => {
               <ResponsiveContainer width="100%" height="75%">
                 <BarChart data={overview.rpsData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsla(210, 40%, 98%, 0.05)" vertical={false} />
-                  <XAxis 
-                    dataKey="time" 
-                    stroke="hsla(210, 40%, 98%, 0.4)" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fontSize: 10, fontWeight: 600 }} 
+                  <XAxis
+                    dataKey="time"
+                    stroke="hsla(210, 40%, 98%, 0.4)"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fontWeight: 600 }}
                   />
-                  <YAxis 
-                    stroke="hsla(210, 40%, 98%, 0.4)" 
-                    axisLine={false} 
-                    tickLine={false} 
-                    tick={{ fontSize: 10, fontWeight: 600 }} 
+                  <YAxis
+                    stroke="hsla(210, 40%, 98%, 0.4)"
+                    axisLine={false}
+                    tickLine={false}
+                    tick={{ fontSize: 10, fontWeight: 600 }}
                   />
                   <Tooltip
                     cursor={{ fill: "hsla(210, 40%, 98%, 0.05)", radius: 8 }}
