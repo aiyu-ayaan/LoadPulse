@@ -19,13 +19,21 @@ LoadPulse now includes:
 Create `.env` from `.env.example` (already added in this repo):
 
 ```env
-PORT=4000
+FRONTEND_PORT=5173
+BACKEND_PORT=4000
 CLIENT_ORIGIN=http://localhost:5173
+VITE_API_PROXY_TARGET=http://localhost:4000
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB=loadpulse
 MAX_SERIES_POINTS=180
 MAX_PERCENTILE_SAMPLES=5000
 ```
+
+Notes:
+- `FRONTEND_PORT` controls the Vite dev server port for local development.
+- `BACKEND_PORT` controls the Express + Socket.IO server port locally and inside Docker.
+- `VITE_API_PROXY_TARGET` is the local dev proxy target for `/api` and `/socket.io`.
+- In Docker deployment, the built frontend is served by the backend, so Docker exposes a single web port. `docker-compose.yml` maps `FRONTEND_PORT` on your host to `BACKEND_PORT` inside the container.
 
 ## Local development
 
@@ -43,6 +51,10 @@ npm run dev
 
 - Frontend: `http://localhost:5173`
 - Backend API + Socket.IO: `http://localhost:4000`
+
+You can change both from `.env`:
+- Frontend: `http://localhost:${FRONTEND_PORT}`
+- Backend: `http://localhost:${BACKEND_PORT}`
 
 ## API endpoints
 
@@ -67,4 +79,21 @@ Run with Docker Compose:
 docker compose up --build
 ```
 
-App will be available at `http://localhost:4000`.
+By default the app will be available at `http://localhost:4000`.
+
+Docker port behavior:
+- Host/public port: `FRONTEND_PORT`
+- Container app port: `BACKEND_PORT`
+
+Example:
+
+```env
+FRONTEND_PORT=8080
+BACKEND_PORT=5000
+CLIENT_ORIGIN=http://localhost:8080
+GITHUB_CALLBACK_URL=http://localhost:8080/api/auth/github/callback
+```
+
+With that setup:
+- Docker app opens at `http://localhost:8080`
+- The Node server listens on port `5000` inside the container

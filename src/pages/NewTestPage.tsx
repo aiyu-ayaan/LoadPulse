@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { runTest } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
+import { useNotifications } from "../context/useNotifications";
 
 const buildTemplateScript = (url: string, vus: number, duration: string) => `import http from 'k6/http';
 import { sleep, check } from 'k6';
@@ -25,6 +26,7 @@ export default function () {
 export const NewTestPage = () => {
   const navigate = useNavigate();
   const { selectedProject } = useProjects();
+  const { addNotification } = useNotifications();
 
   const [name, setName] = useState("Homepage Experience Check");
   const [targetUrl, setTargetUrl] = useState(selectedProject?.baseUrl ?? "https://");
@@ -79,6 +81,15 @@ export const NewTestPage = () => {
         script: isScriptDirty ? script : "",
         type,
         region,
+      });
+      addNotification({
+        id: `run-queued:${run.id}`,
+        type: "info",
+        title: "Test queued",
+        message: `${name} was queued for ${selectedProject.name}. We'll notify you when it starts and finishes.`,
+        projectId: selectedProject.id,
+        runId: run.id,
+        link: `/tests/${run.id}`,
       });
       setSuccessMessage("Test started. Opening test details...");
       navigate(`/tests/${run.id}`);

@@ -14,16 +14,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        BACKEND_PORT: ${BACKEND_PORT:-4000}
     container_name: loadpulse-app
     restart: unless-stopped
     env_file:
       - .env
     environment:
+      BACKEND_PORT: ${BACKEND_PORT:-4000}
+      PORT: ${BACKEND_PORT:-4000}
       MONGODB_URI: mongodb://mongo:27017
-      MONGODB_DB: loadpulse
-      CLIENT_ORIGIN: http://localhost:4000
+      MONGODB_DB: ${MONGODB_DB:-loadpulse}
+      CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:4000}
     ports:
-      - "4000:4000"
+      - "${FRONTEND_PORT:-4000}:${BACKEND_PORT:-4000}"
     depends_on:
       - mongo
 

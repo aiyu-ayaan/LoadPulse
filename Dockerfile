@@ -10,6 +10,8 @@ RUN npm run build
 FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 
+ARG BACKEND_PORT=4000
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
   && curl -sSL https://dl.k6.io/key.gpg | gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg \
@@ -26,6 +28,6 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/.env.example ./.env.example
 
-EXPOSE 4000
+EXPOSE ${BACKEND_PORT}
 
 CMD ["npm", "run", "start"]

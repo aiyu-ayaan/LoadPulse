@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export const ProjectsPage = () => {
   const navigate = useNavigate();
-  const { projects, selectedProjectId, selectProject, createAndSelectProject, deleteProjectById, isLoading, error, refreshProjects } = useProjects();
+  const { projects, selectedProjectId, selectProject, createAndSelectProject, deleteProjectById, isLoading, error } = useProjects();
 
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://");
@@ -137,9 +137,8 @@ export const ProjectsPage = () => {
                 <button
                   key={project.id}
                   onClick={() => selectProject(project.id)}
-                  className={`glass-panel rounded-2xl border p-5 text-left transition ${
-                    selectedProjectId === project.id ? "border-primary/40 bg-primary/10" : "border-white/10 hover:border-primary/30"
-                  }`}
+                  className={`glass-panel rounded-2xl border p-5 text-left transition ${selectedProjectId === project.id ? "border-primary/40 bg-primary/10" : "border-white/10 hover:border-primary/30"
+                    }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -246,10 +245,6 @@ export const ProjectsPage = () => {
           </span>
         </div>
       )}
-
-      <button onClick={() => void refreshProjects()} className="text-xs text-slate-400 hover:text-white">
-        Refresh project list
-      </button>
 
       <ConfirmDialog
         isOpen={Boolean(projectToDelete)}

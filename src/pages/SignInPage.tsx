@@ -1,10 +1,16 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { GitBranch, KeyRound, Lock, Mail, User } from "lucide-react";
+import { KeyRound, Lock, Mail, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/useAuth";
 import { fetchAuthOptions, getGitHubAuthStartUrl } from "../lib/api";
 
 type AuthMode = "signin" | "signup";
+
+const GitHubLogo = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-4 w-4 fill-current">
+    <path d="M12 .5C5.648.5.5 5.648.5 12a11.5 11.5 0 0 0 7.862 10.918c.575.106.787-.25.787-.556 0-.275-.012-1.188-.018-2.156-3.2.694-3.877-1.356-3.877-1.356-.525-1.337-1.281-1.694-1.281-1.694-1.05-.718.081-.706.081-.706 1.162.081 1.775 1.194 1.775 1.194 1.031 1.768 2.706 1.256 3.362.962.106-.75.406-1.256.737-1.544-2.556-.287-5.243-1.281-5.243-5.706 0-1.262.45-2.293 1.188-3.1-.119-.288-.513-1.45.112-3.024 0 0 .969-.31 3.175 1.181a10.97 10.97 0 0 1 5.775 0c2.206-1.49 3.175-1.18 3.175-1.18.625 1.573.231 2.735.112 3.023.738.807 1.188 1.838 1.188 3.1 0 4.438-2.693 5.413-5.256 5.694.419.362.794 1.075.794 2.168 0 1.568-.012 2.831-.012 3.218 0 .306.206.669.794.556A11.502 11.502 0 0 0 23.5 12C23.5 5.648 18.352.5 12 .5Z" />
+  </svg>
+);
 
 export const SignInPage = () => {
   const navigate = useNavigate();
@@ -164,9 +170,8 @@ export const SignInPage = () => {
                 setMode("signin");
                 setError(null);
               }}
-              className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                mode === "signin" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"
-              }`}
+              className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${mode === "signin" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"
+                }`}
             >
               Sign In
             </button>
@@ -176,9 +181,8 @@ export const SignInPage = () => {
                 setMode("signup");
                 setError(null);
               }}
-              className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
-                mode === "signup" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"
-              }`}
+              className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${mode === "signup" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"
+                }`}
             >
               Create Account
             </button>
@@ -194,7 +198,7 @@ export const SignInPage = () => {
             }}
             className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08] disabled:opacity-60"
           >
-            <GitBranch className="h-4 w-4" />
+            <GitHubLogo />
             Continue With GitHub
           </button>
         )}

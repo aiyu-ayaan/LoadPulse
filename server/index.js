@@ -38,10 +38,11 @@ import { resolveScript } from "./utils/k6Script.js";
 
 dotenv.config();
 
-const port = Number(process.env.PORT ?? 4000);
+const port = Number(process.env.BACKEND_PORT ?? process.env.PORT ?? 4000);
+const frontendPort = Number(process.env.FRONTEND_PORT ?? 5173);
 const mongoUri = process.env.MONGODB_URI;
 const databaseName = process.env.MONGODB_DB ?? "loadpulse";
-const clientOrigin = process.env.CLIENT_ORIGIN?.trim() || "*";
+const clientOrigin = process.env.CLIENT_ORIGIN?.trim() || `http://localhost:${frontendPort}`;
 const jwtSecret = process.env.AUTH_JWT_SECRET?.trim() || randomBytes(48).toString("hex");
 const githubClientId = process.env.GITHUB_CLIENT_ID?.trim() || "";
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim() || "";

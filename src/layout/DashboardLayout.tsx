@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   FolderKanban,
   LayoutDashboard,
@@ -17,11 +17,18 @@ import {
   LogOut,
   ChevronDown,
   Check,
+  CheckCheck,
+  Trash2,
+  ExternalLink,
+  Info,
+  CircleAlert,
+  CheckCircle2,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjects } from "../context/useProjects";
 import { useAuth } from "../context/useAuth";
 import { UserAvatar } from "../components/UserAvatar";
+import { useNotifications } from "../context/useNotifications";
 
 const menuItems = [
   { icon: FolderKanban, label: "Projects", path: "/projects" },
@@ -33,24 +40,52 @@ const menuItems = [
 ];
 
 export const DashboardLayout = () => {
+  const navigate = useNavigate();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
+  const [isNotificationOpen, setIsNotificationOpen] = useState(false);
   const location = useLocation();
   const { projects, selectedProject, selectedProjectId, selectProject } = useProjects();
   const { user, signOut } = useAuth();
+  const { notifications, unreadCount, markAsRead, markAllAsRead, removeNotification, clearNotifications } = useNotifications();
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
+  const notificationMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (!projectMenuRef.current?.contains(event.target as Node)) {
         setIsProjectMenuOpen(false);
       }
+      if (!notificationMenuRef.current?.contains(event.target as Node)) {
+        setIsNotificationOpen(false);
+      }
     };
 
     window.addEventListener("mousedown", handlePointerDown);
     return () => window.removeEventListener("mousedown", handlePointerDown);
   }, []);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setIsNotificationOpen(false);
+      setIsProjectMenuOpen(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [location.pathname]);
+
+  const notificationIcon = (type: "info" | "success" | "warning" | "error") => {
+    if (type === "success") {
+      return <CheckCircle2 className="h-4 w-4 text-emerald-300" />;
+    }
+    if (type === "error") {
+      return <CircleAlert className="h-4 w-4 text-rose-300" />;
+    }
+    if (type === "warning") {
+      return <CircleAlert className="h-4 w-4 text-amber-300" />;
+    }
+    return <Info className="h-4 w-4 text-primary" />;
+  };
 
   return (
     <div className="relative min-h-screen overflow-hidden text-foreground">
@@ -204,10 +239,125 @@ export const DashboardLayout = () => {
               />
             </div>
 
-            <button className="relative grid h-10 w-10 place-content-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white">
-              <Bell size={20} />
-              <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-primary shadow-[0_0_10px_rgba(59,130,246,0.8)]" />
-            </button>
+            <div className="relative" ref={notificationMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsNotificationOpen((previous) => !previous)}
+                className="relative grid h-10 w-10 place-content-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white"
+                aria-label="Notifications"
+              >
+                <Bell size={20} />
+                {unreadCount > 0 && (
+                  <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-[0_0_10px_rgba(59,130,246,0.8)]">
+                    {unreadCount > 9 ? "9+" : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {isNotificationOpen && (
+                <div className="absolute right-0 top-[calc(100%+0.75rem)] z-40 w-[360px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 shadow-[0_24px_48px_rgba(2,6,23,0.55)] backdrop-blur-xl">
+                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-semibold text-white">Notifications</p>
+                      <p className="text-xs text-slate-400">
+                        {unreadCount > 0 ? `${unreadCount} unread update${unreadCount === 1 ? "" : "s"}` : "All caught up"}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={markAllAsRead}
+                        disabled={notifications.length === 0 || unreadCount === 0}
+                        className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06] disabled:opacity-40"
+                      >
+                        <span className="inline-flex items-center gap-1">
+                          <CheckCheck className="h-3.5 w-3.5" /> Read all
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearNotifications}
+                        disabled={notifications.length === 0}
+                        className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06] disabled:opacity-40"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  </div>
+
+                  {notifications.length === 0 ? (
+                    <div className="px-4 py-10 text-center">
+                      <p className="text-sm font-medium text-white">No notifications yet</p>
+                      <p className="mt-1 text-xs text-slate-400">Queued, running, and completed tests will appear here.</p>
+                    </div>
+                  ) : (
+                    <div className="max-h-[420px] overflow-y-auto p-2">
+                      {notifications.map((notification) => (
+                        <div
+                          key={notification.id}
+                          className={`group rounded-xl border px-3 py-3 transition ${
+                            notification.read
+                              ? "border-transparent bg-transparent hover:bg-white/[0.04]"
+                              : "border-primary/20 bg-primary/10 hover:bg-primary/15"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5">{notificationIcon(notification.type)}</div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-white">{notification.title}</p>
+                                  <p className="mt-1 text-xs leading-5 text-slate-300">{notification.message}</p>
+                                </div>
+                                {!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                              </div>
+                              <div className="mt-3 flex items-center justify-between gap-3">
+                                <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
+                                  {new Date(notification.timestamp).toLocaleString("en-US", {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </p>
+                                <div className="flex items-center gap-2">
+                                  {notification.link && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const link = notification.link;
+                                        if (!link) {
+                                          return;
+                                        }
+                                        markAsRead(notification.id);
+                                        setIsNotificationOpen(false);
+                                        void navigate(link);
+                                      }}
+                                      className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+                                    >
+                                      <span className="inline-flex items-center gap-1">
+                                        <ExternalLink className="h-3.5 w-3.5" /> Open
+                                      </span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => removeNotification(notification.id)}
+                                    className="rounded-lg border border-white/10 px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06]"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="h-8 w-px bg-white/10" />
 
             <div className="flex items-center gap-2 md:gap-3">

@@ -427,6 +427,7 @@ const finalize = async (state, exitCode) => {
   if (socketServer) {
     socketServer.emit("test:run:completed", {
       runId: state.runId,
+      runName: state.runName,
       projectId: state.projectId,
       status: isSuccess ? "success" : "failed",
       errorMessage,
