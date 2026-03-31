@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createProject, deleteProject, fetchProjects, type Project } from "../lib/api";
 import { ProjectContext, type ProjectContextValue } from "./project-context";
+import { useAuth } from "./useAuth";
 
 const STORAGE_KEY = "loadpulse.selectedProjectId";
 
 export const ProjectProvider = ({ children }: { children: ReactNode }) => {
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -14,6 +16,13 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
   const [error, setError] = useState<string | null>(null);
 
   const refreshProjects = useCallback(async () => {
+    if (!isAuthenticated) {
+      setProjects([]);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
     try {
       const response = await fetchProjects();
       setProjects(response.data);
@@ -23,11 +32,24 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+    setIsLoading(true);
     void refreshProjects();
-  }, [refreshProjects]);
+  }, [isAuthLoading, refreshProjects]);
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      return;
+    }
+    setProjects([]);
+    setSelectedProjectId(null);
+    localStorage.removeItem(STORAGE_KEY);
+  }, [isAuthenticated]);
 
   useEffect(() => {
     if (projects.length === 0) {

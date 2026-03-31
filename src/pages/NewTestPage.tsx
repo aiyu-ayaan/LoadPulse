@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { runTest } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
+import { useAuth } from "../context/useAuth";
 
 const buildTemplateScript = (url: string, vus: number, duration: string) => `import http from 'k6/http';
 import { sleep, check } from 'k6';
@@ -25,6 +26,7 @@ export default function () {
 export const NewTestPage = () => {
   const navigate = useNavigate();
   const { selectedProject } = useProjects();
+  const { user } = useAuth();
 
   const [name, setName] = useState("Homepage Experience Check");
   const [targetUrl, setTargetUrl] = useState(selectedProject?.baseUrl ?? "https://");
@@ -37,6 +39,10 @@ export const NewTestPage = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const canRunCurrentProject = Boolean(
+    selectedProject &&
+      (user?.isAdmin || user?.projectPermissions.some((permission) => permission.projectId === selectedProject.id && permission.canRun)),
+  );
 
   useEffect(() => {
     if (!selectedProject) {
@@ -57,6 +63,10 @@ export const NewTestPage = () => {
   const handleRunTest = async () => {
     if (!selectedProject) {
       setError("Please create or select a project first.");
+      return;
+    }
+    if (!canRunCurrentProject) {
+      setError("Your account can view this project but cannot run tests for it.");
       return;
     }
 
@@ -217,10 +227,12 @@ export const NewTestPage = () => {
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
-            disabled={isRunning}
+            disabled={isRunning || !canRunCurrentProject}
             onClick={() => void handleRunTest()}
             className={`flex w-full items-center justify-center gap-2 rounded-2xl border py-4 font-bold transition-all shadow-[0_0_32px_rgba(59,130,246,0.45)] ${
-              isRunning ? "cursor-not-allowed border-transparent bg-slate-700 text-slate-200" : "animate-pulse-glow border-primary/40 bg-primary text-white hover:bg-primary/90"
+              isRunning || !canRunCurrentProject
+                ? "cursor-not-allowed border-transparent bg-slate-700 text-slate-200"
+                : "animate-pulse-glow border-primary/40 bg-primary text-white hover:bg-primary/90"
             }`}
           >
             {isRunning ? (
@@ -228,6 +240,8 @@ export const NewTestPage = () => {
                 <div className="h-5 w-5 animate-spin rounded-full border-2 border-white/30 border-t-white" />
                 Starting...
               </div>
+            ) : !canRunCurrentProject ? (
+              "Permission Required To Run"
             ) : (
               <>
                 <Play className="h-5 w-5 fill-current" />

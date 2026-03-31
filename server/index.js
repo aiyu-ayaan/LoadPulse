@@ -1,7 +1,9 @@
 import http from "node:http";
+import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
+import bcrypt from "bcryptjs";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
@@ -9,7 +11,19 @@ import mongoose from "mongoose";
 import { Server } from "socket.io";
 import { Project } from "./models/Project.js";
 import { TestRun } from "./models/TestRun.js";
+import { User } from "./models/User.js";
 import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun } from "./services/k6Runner.js";
+import {
+  AUTH_TOKEN_MAX_AGE_SECONDS,
+  canRunProject,
+  canViewProject,
+  getRunnableProjectIds,
+  getViewableProjectIds,
+  readBearerToken,
+  signAccessToken,
+  toPublicUser,
+  verifyAccessToken,
+} from "./utils/auth.js";
 import { resolveScript } from "./utils/k6Script.js";
 
 dotenv.config();
@@ -18,9 +32,13 @@ const port = Number(process.env.PORT ?? 4000);
 const mongoUri = process.env.MONGODB_URI;
 const databaseName = process.env.MONGODB_DB ?? "loadpulse";
 const clientOrigin = process.env.CLIENT_ORIGIN?.trim() || "*";
+const jwtSecret = process.env.AUTH_JWT_SECRET?.trim() || randomBytes(48).toString("hex");
 
 if (!mongoUri) {
   throw new Error("MONGODB_URI is required. Add it to your .env file.");
+}
+if (!process.env.AUTH_JWT_SECRET?.trim()) {
+  console.warn("[auth] AUTH_JWT_SECRET was not provided. Generated a temporary secret for this runtime.");
 }
 
 const parseCorsOrigins = (originValue) => {
@@ -361,6 +379,132 @@ const validateTestPayload = (payload, project) => {
   };
 };
 
+const normalizeUsername = (value) => String(value ?? "").trim().toLowerCase();
+const normalizeEmail = (value) => String(value ?? "").trim().toLowerCase();
+
+const sanitizeProjectPermissions = (permissions) => {
+  if (!Array.isArray(permissions)) {
+    return [];
+  }
+
+  const normalized = [];
+  const seen = new Set();
+
+  for (const permission of permissions) {
+    const projectId = String(permission?.projectId ?? "").trim();
+    if (!projectId || !isValidObjectId(projectId) || seen.has(projectId)) {
+      continue;
+    }
+    seen.add(projectId);
+
+    const canRun = Boolean(permission?.canRun);
+    const canView = Boolean(permission?.canView || canRun);
+
+    normalized.push({
+      projectId: new mongoose.Types.ObjectId(projectId),
+      canView,
+      canRun,
+    });
+  }
+
+  return normalized;
+};
+
+const validateCreateUserPayload = (payload) => {
+  const username = normalizeUsername(payload?.username);
+  const email = normalizeEmail(payload?.email);
+  const password = String(payload?.password ?? "");
+  const isAdmin = Boolean(payload?.isAdmin);
+  const projectPermissions = sanitizeProjectPermissions(payload?.projectPermissions);
+
+  if (!username || username.length < 3) {
+    return { error: "Username must be at least 3 characters." };
+  }
+  if (!/^[a-z0-9._-]+$/i.test(username)) {
+    return { error: "Username can only include letters, numbers, dot, underscore, and dash." };
+  }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "A valid email address is required." };
+  }
+  if (!password || password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+  if (!isAdmin && projectPermissions.length === 0) {
+    return { error: "Select at least one project permission, or mark the user as admin." };
+  }
+
+  return {
+    value: {
+      username,
+      email,
+      password,
+      isAdmin,
+      projectPermissions: isAdmin ? [] : projectPermissions,
+    },
+  };
+};
+
+const validateSetupAdminPayload = (payload) => {
+  const username = normalizeUsername(payload?.username);
+  const email = normalizeEmail(payload?.email);
+  const password = String(payload?.password ?? "");
+
+  if (!username || username.length < 3) {
+    return { error: "Username must be at least 3 characters." };
+  }
+  if (!/^[a-z0-9._-]+$/i.test(username)) {
+    return { error: "Username can only include letters, numbers, dot, underscore, and dash." };
+  }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "A valid email address is required." };
+  }
+  if (!password || password.length < 8) {
+    return { error: "Password must be at least 8 characters." };
+  }
+
+  return {
+    value: {
+      username,
+      email,
+      password,
+    },
+  };
+};
+
+const authenticateRequest = async (req, res, next) => {
+  const token = readBearerToken(req.headers.authorization);
+  if (!token) {
+    return res.status(401).json({ error: "Authorization token is required." });
+  }
+
+  let payload;
+  try {
+    payload = verifyAccessToken(token, jwtSecret);
+  } catch {
+    return res.status(401).json({ error: "Invalid or expired authorization token." });
+  }
+
+  const userId = String(payload?.sub ?? "").trim();
+  if (!isValidObjectId(userId)) {
+    return res.status(401).json({ error: "Invalid authorization token payload." });
+  }
+
+  const user = await User.findById(userId).lean();
+  if (!user) {
+    return res.status(401).json({ error: "User account no longer exists." });
+  }
+
+  req.authUser = toPublicUser(user);
+  return next();
+};
+
+const requireAdmin = (req, res, next) => {
+  if (!req.authUser?.isAdmin) {
+    return res.status(403).json({ error: "Admin access is required for this action." });
+  }
+  return next();
+};
+
 const markOrphanedRuns = async () => {
   await TestRun.updateMany(
     {
@@ -377,9 +521,22 @@ const markOrphanedRuns = async () => {
   );
 };
 
-const getProjectStatsMap = async () => {
+const getProjectStatsMap = async (projectIds = null) => {
+  const hasProjectFilter = Array.isArray(projectIds);
+  const safeProjectIds = hasProjectFilter
+    ? projectIds.filter((projectId) => isValidObjectId(projectId)).map((projectId) => new mongoose.Types.ObjectId(projectId))
+    : [];
+  const matchStage = hasProjectFilter
+    ? {
+        $match: {
+          projectId: { $in: safeProjectIds },
+        },
+      }
+    : null;
+
   const [runStats, latestRuns] = await Promise.all([
     TestRun.aggregate([
+      ...(matchStage ? [matchStage] : []),
       {
         $group: {
           _id: "$projectId",
@@ -398,6 +555,7 @@ const getProjectStatsMap = async () => {
       },
     ]),
     TestRun.aggregate([
+      ...(matchStage ? [matchStage] : []),
       { $sort: { createdAt: -1 } },
       {
         $group: {
@@ -450,8 +608,52 @@ const io = new Server(server, {
     origin: parseCorsOrigins(clientOrigin),
   },
 });
+io.use(async (socket, next) => {
+  const socketToken = readBearerToken(
+    socket.handshake?.auth?.token ?? socket.handshake?.headers?.authorization ?? socket.handshake?.query?.token,
+  );
+  if (!socketToken) {
+    return next(new Error("Missing auth token"));
+  }
 
-setSocketServer(io);
+  let payload;
+  try {
+    payload = verifyAccessToken(socketToken, jwtSecret);
+  } catch {
+    return next(new Error("Invalid auth token"));
+  }
+
+  const userId = String(payload?.sub ?? "").trim();
+  if (!isValidObjectId(userId)) {
+    return next(new Error("Invalid auth token"));
+  }
+
+  const user = await User.findById(userId).lean();
+  if (!user) {
+    return next(new Error("User not found"));
+  }
+
+  socket.data.authUser = toPublicUser(user);
+  return next();
+});
+
+const emitToAuthorizedSockets = (eventName, payload) => {
+  const projectId = payload?.projectId ? String(payload.projectId) : null;
+
+  for (const socket of io.sockets.sockets.values()) {
+    const user = socket.data?.authUser;
+    if (!user) {
+      continue;
+    }
+    if (!projectId || canViewProject(user, projectId)) {
+      socket.emit(eventName, payload);
+    }
+  }
+};
+
+setSocketServer({
+  emit: emitToAuthorizedSockets,
+});
 
 app.use(
   cors({
@@ -460,6 +662,11 @@ app.use(
   }),
 );
 app.use(express.json({ limit: "2mb" }));
+
+app.use((req, _res, next) => {
+  req.authUser = null;
+  next();
+});
 
 app.get("/api/health", async (_req, res) => {
   const mongoState = mongoose.connection.readyState === 1 ? "up" : "down";
@@ -471,8 +678,100 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-app.get("/api/projects", async (_req, res) => {
-  const [projects, statsMap] = await Promise.all([Project.find().sort({ createdAt: -1 }).lean(), getProjectStatsMap()]);
+app.get("/api/auth/setup-status", async (_req, res) => {
+  const adminExists = await User.exists({ isAdmin: true });
+  return res.json({
+    needsSetup: !adminExists,
+  });
+});
+
+app.post("/api/auth/setup-admin", async (req, res) => {
+  const adminExists = await User.exists({ isAdmin: true });
+  if (adminExists) {
+    return res.status(409).json({ error: "Initial setup is already complete." });
+  }
+
+  const { value, error } = validateSetupAdminPayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const duplicateAccount = await User.findOne({
+    $or: [{ username: value.username }, { email: value.email }],
+  }).lean();
+  if (duplicateAccount) {
+    return res.status(409).json({ error: "Username or email is already in use." });
+  }
+
+  const passwordHash = await bcrypt.hash(value.password, 12);
+  const user = await User.create({
+    username: value.username,
+    email: value.email,
+    passwordHash,
+    isAdmin: true,
+    projectPermissions: [],
+  });
+
+  const token = signAccessToken(user, jwtSecret);
+  return res.status(201).json({
+    token,
+    expiresIn: AUTH_TOKEN_MAX_AGE_SECONDS,
+    user: toPublicUser(user),
+  });
+});
+
+app.post("/api/auth/signin", async (req, res) => {
+  const username = normalizeUsername(req.body?.username);
+  const password = String(req.body?.password ?? "");
+
+  if (!username || !password) {
+    return res.status(400).json({ error: "Username and password are required." });
+  }
+
+  const adminExists = await User.exists({ isAdmin: true });
+  if (!adminExists) {
+    return res.status(409).json({ error: "No admin account exists yet. Complete initial setup first." });
+  }
+
+  const user = await User.findOne({ username });
+  if (!user) {
+    return res.status(401).json({ error: "Invalid username or password." });
+  }
+
+  const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+  if (!isPasswordValid) {
+    return res.status(401).json({ error: "Invalid username or password." });
+  }
+
+  const token = signAccessToken(user, jwtSecret);
+  return res.json({
+    token,
+    expiresIn: AUTH_TOKEN_MAX_AGE_SECONDS,
+    user: toPublicUser(user),
+  });
+});
+
+app.use("/api", (req, res, next) => {
+  if (req.path === "/health" || req.path === "/auth/signin" || req.path === "/auth/setup-status" || req.path === "/auth/setup-admin") {
+    return next();
+  }
+  return authenticateRequest(req, res, next);
+});
+
+app.get("/api/auth/me", async (req, res) => {
+  return res.json({
+    user: req.authUser,
+  });
+});
+
+app.get("/api/projects", async (req, res) => {
+  const allowedProjectIds = getViewableProjectIds(req.authUser);
+  const projectFilter = allowedProjectIds === null ? {} : { _id: { $in: allowedProjectIds } };
+  const [projects, statsMap] = await Promise.all([
+    Project.find(projectFilter).sort({ createdAt: -1 }).lean(),
+    getProjectStatsMap(allowedProjectIds),
+  ]);
+
   res.json({
     data: projects.map((project) => ({
       id: project._id.toString(),
@@ -494,7 +793,7 @@ app.get("/api/projects", async (_req, res) => {
   });
 });
 
-app.post("/api/projects", async (req, res) => {
+app.post("/api/projects", requireAdmin, async (req, res) => {
   const { value, error } = validateProjectPayload(req.body);
   if (error) {
     return res.status(400).json({ error });
@@ -522,7 +821,7 @@ app.post("/api/projects", async (req, res) => {
   });
 });
 
-app.delete("/api/projects/:id", async (req, res) => {
+app.delete("/api/projects/:id", requireAdmin, async (req, res) => {
   const projectId = String(req.params.id ?? "").trim();
   if (!isValidObjectId(projectId)) {
     return res.status(400).json({ error: "Invalid project id." });
@@ -545,6 +844,7 @@ app.delete("/api/projects/:id", async (req, res) => {
 
   const deletedRuns = await TestRun.deleteMany({ projectId });
   await Project.deleteOne({ _id: projectId });
+  await User.updateMany({}, { $pull: { projectPermissions: { projectId: new mongoose.Types.ObjectId(projectId) } } });
 
   return res.json({
     success: true,
@@ -552,10 +852,55 @@ app.delete("/api/projects/:id", async (req, res) => {
   });
 });
 
+app.get("/api/users", requireAdmin, async (_req, res) => {
+  const users = await User.find().sort({ createdAt: -1 }).lean();
+  return res.json({
+    data: users.map(toPublicUser),
+  });
+});
+
+app.post("/api/users", requireAdmin, async (req, res) => {
+  const { value, error } = validateCreateUserPayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  if (!value.isAdmin) {
+    const projectIds = value.projectPermissions.map((permission) => permission.projectId);
+    const existingCount = await Project.countDocuments({ _id: { $in: projectIds } });
+    if (existingCount !== projectIds.length) {
+      return res.status(400).json({ error: "One or more project permissions are invalid." });
+    }
+  }
+
+  const existingUser = await User.findOne({
+    $or: [{ username: value.username }, { email: value.email }],
+  });
+  if (existingUser) {
+    return res.status(409).json({ error: "A user with that username or email already exists." });
+  }
+
+  const passwordHash = await bcrypt.hash(value.password, 12);
+  const user = await User.create({
+    username: value.username,
+    email: value.email,
+    passwordHash,
+    isAdmin: value.isAdmin,
+    projectPermissions: value.projectPermissions,
+  });
+
+  return res.status(201).json({
+    data: toPublicUser(user),
+  });
+});
+
 app.post("/api/tests/run", async (req, res) => {
   const projectId = String(req.body?.projectId ?? "").trim();
   if (!isValidObjectId(projectId)) {
     return res.status(400).json({ error: "A valid projectId is required." });
+  }
+  if (!canRunProject(req.authUser, projectId)) {
+    return res.status(403).json({ error: "You do not have permission to run tests for this project." });
   }
 
   const project = await Project.findById(projectId);
@@ -591,6 +936,7 @@ app.post("/api/tests/run", async (req, res) => {
 });
 
 app.get("/api/tests/history", async (req, res) => {
+  const allowedProjectIds = getViewableProjectIds(req.authUser);
   const search = String(req.query.search ?? "").trim();
   const status = String(req.query.status ?? "").trim();
   const projectId = String(req.query.projectId ?? "").trim();
@@ -611,7 +957,12 @@ app.get("/api/tests/history", async (req, res) => {
     if (!isValidObjectId(projectId)) {
       return res.status(400).json({ error: "Invalid projectId." });
     }
+    if (!canViewProject(req.authUser, projectId)) {
+      return res.status(403).json({ error: "You do not have permission to view this project's history." });
+    }
     filter.projectId = projectId;
+  } else if (allowedProjectIds !== null) {
+    filter.projectId = { $in: allowedProjectIds };
   }
 
   const runs = await TestRun.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
@@ -623,6 +974,7 @@ app.get("/api/tests/history", async (req, res) => {
 });
 
 app.delete("/api/tests/history", async (req, res) => {
+  const allowedProjectIds = getRunnableProjectIds(req.authUser);
   const projectId = String(req.query.projectId ?? "").trim();
   const filter = { status: { $nin: ["running", "queued"] } };
 
@@ -630,7 +982,12 @@ app.delete("/api/tests/history", async (req, res) => {
     if (!isValidObjectId(projectId)) {
       return res.status(400).json({ error: "Invalid projectId." });
     }
+    if (!canRunProject(req.authUser, projectId)) {
+      return res.status(403).json({ error: "You do not have permission to remove runs for this project." });
+    }
     filter.projectId = projectId;
+  } else if (allowedProjectIds !== null) {
+    filter.projectId = { $in: allowedProjectIds };
   }
 
   const result = await TestRun.deleteMany(filter);
@@ -641,11 +998,22 @@ app.delete("/api/tests/history", async (req, res) => {
 });
 
 app.delete("/api/tests/:id", async (req, res) => {
-  const runId = req.params.id;
+  const runId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(runId)) {
+    return res.status(400).json({ error: "Invalid test run id." });
+  }
   if (hasActiveRun(runId)) {
     return res.status(409).json({
       error: "Cannot delete a running test.",
     });
+  }
+
+  const run = await TestRun.findById(runId).select({ projectId: 1 }).lean();
+  if (!run) {
+    return res.status(404).json({ error: "Test run not found." });
+  }
+  if (!canRunProject(req.authUser, run.projectId)) {
+    return res.status(403).json({ error: "You do not have permission to delete this test run." });
   }
 
   const result = await TestRun.deleteOne({ _id: runId });
@@ -657,9 +1025,17 @@ app.delete("/api/tests/:id", async (req, res) => {
 });
 
 app.get("/api/tests/:id", async (req, res) => {
-  const run = await TestRun.findById(req.params.id).lean();
+  const runId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(runId)) {
+    return res.status(400).json({ error: "Invalid test run id." });
+  }
+
+  const run = await TestRun.findById(runId).lean();
   if (!run) {
     return res.status(404).json({ error: "Test run not found." });
+  }
+  if (!canViewProject(req.authUser, run.projectId)) {
+    return res.status(403).json({ error: "You do not have permission to view this test run." });
   }
 
   return res.json({
@@ -674,15 +1050,24 @@ app.get("/api/tests/:id", async (req, res) => {
 });
 
 app.get("/api/dashboard/overview", async (req, res) => {
+  const allowedProjectIds = getViewableProjectIds(req.authUser);
   const projectId = String(req.query.projectId ?? "").trim();
   const hasProjectFilter = Boolean(projectId);
   if (hasProjectFilter && !isValidObjectId(projectId)) {
     return res.status(400).json({ error: "Invalid projectId." });
   }
+  if (hasProjectFilter && !canViewProject(req.authUser, projectId)) {
+    return res.status(403).json({ error: "You do not have permission to view this project dashboard." });
+  }
 
-  const queryFilter = hasProjectFilter ? { projectId } : {};
-  const [liveSnapshots, recentRuns, allRunsForStats] = await Promise.all([
-    Promise.resolve(getActiveRunSnapshots(hasProjectFilter ? projectId : undefined)),
+  const queryFilter = hasProjectFilter ? { projectId } : allowedProjectIds === null ? {} : { projectId: { $in: allowedProjectIds } };
+
+  let liveSnapshots = getActiveRunSnapshots(hasProjectFilter ? projectId : undefined);
+  if (!hasProjectFilter && allowedProjectIds !== null) {
+    liveSnapshots = liveSnapshots.filter((snapshot) => canViewProject(req.authUser, snapshot.projectId));
+  }
+
+  const [recentRuns, allRunsForStats] = await Promise.all([
     TestRun.find(queryFilter).sort({ createdAt: -1 }).limit(8).lean(),
     TestRun.find(queryFilter).select({ finalMetrics: 1, liveMetrics: 1 }).lean(),
   ]);
@@ -708,8 +1093,11 @@ app.get("/api/dashboard/overview", async (req, res) => {
 });
 
 io.on("connection", (socket) => {
+  const authUser = socket.data?.authUser;
+  const visibleActiveRuns = getActiveRunSnapshots().filter((snapshot) => canViewProject(authUser, snapshot.projectId));
+
   socket.emit("live:init", {
-    activeRuns: getActiveRunSnapshots(),
+    activeRuns: visibleActiveRuns,
   });
 });
 

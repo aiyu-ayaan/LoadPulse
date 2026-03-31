@@ -20,7 +20,7 @@ import { io } from "socket.io-client";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { EmptyState } from "../components/EmptyState";
 import { useNavigate } from "react-router-dom";
-import { fetchDashboardOverview, socketUrl, type DashboardOverview } from "../lib/api";
+import { fetchDashboardOverview, getAuthToken, socketUrl, type DashboardOverview } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 
 const compactFormatter = new Intl.NumberFormat("en-US", {
@@ -110,9 +110,16 @@ export const DashboardPage = () => {
     if (!selectedProject) {
       return;
     }
+    const token = getAuthToken();
+    if (!token) {
+      return;
+    }
 
     const socket = io(socketUrl, {
       transports: ["websocket", "polling"],
+      auth: {
+        token: `Bearer ${token}`,
+      },
     });
 
     const scheduleRefresh = () => {
@@ -536,4 +543,3 @@ export const DashboardPage = () => {
     </div>
   );
 };
-

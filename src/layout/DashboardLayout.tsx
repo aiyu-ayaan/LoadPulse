@@ -17,9 +17,11 @@ import {
   Menu,
   X,
   Sparkles,
+  LogOut,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjects } from "../context/useProjects";
+import { useAuth } from "../context/useAuth";
 
 const menuItems = [
   { icon: FolderKanban, label: "Projects", path: "/projects" },
@@ -36,6 +38,7 @@ export const DashboardLayout = () => {
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const location = useLocation();
   const { projects, selectedProject, selectedProjectId, selectProject } = useProjects();
+  const { user, signOut } = useAuth();
 
   return (
     <div className="relative min-h-screen overflow-hidden text-foreground">
@@ -183,9 +186,17 @@ export const DashboardLayout = () => {
                 <User size={20} className="text-white" />
               </div>
               <div className="hidden sm:block">
-                <p className="text-sm font-semibold">Team Owner</p>
-                <p className="text-xs text-muted">Pro Plan</p>
+                <p className="text-sm font-semibold">{user?.username ?? "User"}</p>
+                <p className="text-xs text-muted">{user?.isAdmin ? "Admin" : "Project Member"}</p>
               </div>
+              <button
+                onClick={signOut}
+                className="grid h-9 w-9 place-content-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white"
+                aria-label="Sign out"
+                title="Sign out"
+              >
+                <LogOut size={16} />
+              </button>
             </div>
           </div>
         </header>

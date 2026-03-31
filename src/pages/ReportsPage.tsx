@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
-import { fetchTestHistory, fetchTestRun, socketUrl, type TestRunDetail } from "../lib/api";
+import { fetchTestHistory, fetchTestRun, getAuthToken, socketUrl, type TestRunDetail } from "../lib/api";
 import { io } from "socket.io-client";
 
 type PercentilePoint = {
@@ -192,12 +192,21 @@ export const ReportsPage = () => {
     if (!selectedProject) {
       return;
     }
+    const token = getAuthToken();
+    if (!token) {
+      return;
+    }
 
     pollingRef.current = window.setInterval(() => {
       void loadReport();
     }, 5000);
 
-    const socket = io(socketUrl, { transports: ["websocket", "polling"] });
+    const socket = io(socketUrl, {
+      transports: ["websocket", "polling"],
+      auth: {
+        token: `Bearer ${token}`,
+      },
+    });
     socket.on("test:run:completed", (eventPayload: { projectId?: string }) => {
       if (!eventPayload?.projectId || eventPayload.projectId === selectedProject.id) {
         void loadReport();
