@@ -12,7 +12,6 @@ import {
   PanelLeftOpen,
   Search,
   Bell,
-  User,
   Activity,
   Menu,
   X,
@@ -22,6 +21,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjects } from "../context/useProjects";
 import { useAuth } from "../context/useAuth";
+import { UserAvatar } from "../components/UserAvatar";
 
 const menuItems = [
   { icon: FolderKanban, label: "Projects", path: "/projects" },
@@ -182,9 +182,7 @@ export const DashboardLayout = () => {
             <div className="h-8 w-px bg-white/10" />
 
             <div className="flex items-center gap-2 md:gap-3">
-              <div className="grid h-9 w-9 place-content-center rounded-xl bg-gradient-to-br from-primary via-secondary-purple to-secondary-teal">
-                <User size={20} className="text-white" />
-              </div>
+              <UserAvatar username={user?.username ?? "User"} avatarDataUrl={user?.avatarDataUrl} size="sm" />
               <div className="hidden sm:block">
                 <p className="text-sm font-semibold">{user?.username ?? "User"}</p>
                 <p className="text-xs text-muted">{user?.isAdmin ? "Admin" : "Project Member"}</p>

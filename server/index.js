@@ -15,15 +15,24 @@ import { User } from "./models/User.js";
 import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun } from "./services/k6Runner.js";
 import {
   AUTH_TOKEN_MAX_AGE_SECONDS,
+  TWO_FACTOR_TOKEN_MAX_AGE_SECONDS,
   canRunProject,
   canViewProject,
   getRunnableProjectIds,
   getViewableProjectIds,
   readBearerToken,
   signAccessToken,
+  signTwoFactorToken,
   toPublicUser,
   verifyAccessToken,
 } from "./utils/auth.js";
+import {
+  decryptSecret,
+  encryptSecret,
+  generateTwoFactorSecret,
+  toQrCodeDataUrl,
+  verifyTwoFactorCode,
+} from "./utils/twoFactor.js";
 import { resolveScript } from "./utils/k6Script.js";
 
 dotenv.config();
@@ -471,6 +480,71 @@ const validateSetupAdminPayload = (payload) => {
   };
 };
 
+const validateProfilePayload = (payload) => {
+  const username = normalizeUsername(payload?.username);
+  const email = normalizeEmail(payload?.email);
+  const avatarDataUrl = String(payload?.avatarDataUrl ?? "").trim();
+
+  if (!username || username.length < 3) {
+    return { error: "Username must be at least 3 characters." };
+  }
+  if (!/^[a-z0-9._-]+$/i.test(username)) {
+    return { error: "Username can only include letters, numbers, dot, underscore, and dash." };
+  }
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "A valid email address is required." };
+  }
+  if (avatarDataUrl && !/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(avatarDataUrl)) {
+    return { error: "Profile photo must be a PNG, JPG, WEBP, or GIF image." };
+  }
+  if (avatarDataUrl.length > 1_500_000) {
+    return { error: "Profile photo is too large. Use a smaller image." };
+  }
+
+  return {
+    value: {
+      username,
+      email,
+      avatarDataUrl,
+    },
+  };
+};
+
+const validatePasswordChangePayload = (payload) => {
+  const currentPassword = String(payload?.currentPassword ?? "");
+  const newPassword = String(payload?.newPassword ?? "");
+
+  if (!currentPassword) {
+    return { error: "Current password is required." };
+  }
+  if (!newPassword || newPassword.length < 8) {
+    return { error: "New password must be at least 8 characters." };
+  }
+
+  return {
+    value: {
+      currentPassword,
+      newPassword,
+    },
+  };
+};
+
+const validateAccessUpdatePayload = (payload) => {
+  const isAdmin = Boolean(payload?.isAdmin);
+  const projectPermissions = sanitizeProjectPermissions(payload?.projectPermissions);
+
+  if (!isAdmin && projectPermissions.length === 0) {
+    return { error: "Select at least one project permission, or make the user an admin." };
+  }
+
+  return {
+    value: {
+      isAdmin,
+      projectPermissions: isAdmin ? [] : projectPermissions,
+    },
+  };
+};
+
 const authenticateRequest = async (req, res, next) => {
   const token = readBearerToken(req.headers.authorization);
   if (!token) {
@@ -743,6 +817,62 @@ app.post("/api/auth/signin", async (req, res) => {
     return res.status(401).json({ error: "Invalid username or password." });
   }
 
+  if (user.twoFactorEnabled) {
+    const pendingToken = signTwoFactorToken(user, jwtSecret);
+    return res.json({
+      requiresTwoFactor: true,
+      pendingToken,
+      expiresIn: TWO_FACTOR_TOKEN_MAX_AGE_SECONDS,
+      user: {
+        username: user.username,
+        email: user.email,
+      },
+    });
+  }
+
+  const token = signAccessToken(user, jwtSecret);
+  return res.json({
+    token,
+    expiresIn: AUTH_TOKEN_MAX_AGE_SECONDS,
+    user: toPublicUser(user),
+  });
+});
+
+app.post("/api/auth/verify-2fa", async (req, res) => {
+  const pendingToken = readBearerToken(req.body?.pendingToken);
+  const code = String(req.body?.code ?? "").trim();
+
+  if (!pendingToken || !code) {
+    return res.status(400).json({ error: "Pending token and verification code are required." });
+  }
+
+  let payload;
+  try {
+    payload = verifyAccessToken(pendingToken, jwtSecret);
+  } catch {
+    return res.status(401).json({ error: "The 2-step verification session is invalid or expired." });
+  }
+
+  if (payload?.purpose !== "two-factor") {
+    return res.status(401).json({ error: "Invalid 2-step verification token." });
+  }
+
+  const userId = String(payload?.sub ?? "").trim();
+  if (!isValidObjectId(userId)) {
+    return res.status(401).json({ error: "Invalid 2-step verification token." });
+  }
+
+  const user = await User.findById(userId);
+  if (!user || !user.twoFactorEnabled || !user.twoFactorSecretEncrypted) {
+    return res.status(401).json({ error: "2-step verification is not available for this account." });
+  }
+
+  const secret = decryptSecret(user.twoFactorSecretEncrypted, jwtSecret);
+  const isValidCode = verifyTwoFactorCode(secret, code);
+  if (!isValidCode) {
+    return res.status(401).json({ error: "Invalid verification code." });
+  }
+
   const token = signAccessToken(user, jwtSecret);
   return res.json({
     token,
@@ -752,7 +882,13 @@ app.post("/api/auth/signin", async (req, res) => {
 });
 
 app.use("/api", (req, res, next) => {
-  if (req.path === "/health" || req.path === "/auth/signin" || req.path === "/auth/setup-status" || req.path === "/auth/setup-admin") {
+  if (
+    req.path === "/health" ||
+    req.path === "/auth/signin" ||
+    req.path === "/auth/verify-2fa" ||
+    req.path === "/auth/setup-status" ||
+    req.path === "/auth/setup-admin"
+  ) {
     return next();
   }
   return authenticateRequest(req, res, next);
@@ -761,6 +897,134 @@ app.use("/api", (req, res, next) => {
 app.get("/api/auth/me", async (req, res) => {
   return res.json({
     user: req.authUser,
+  });
+});
+
+app.patch("/api/auth/profile", async (req, res) => {
+  const { value, error } = validateProfilePayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const duplicateUser = await User.findOne({
+    _id: { $ne: req.authUser.id },
+    $or: [{ username: value.username }, { email: value.email }],
+  }).lean();
+  if (duplicateUser) {
+    return res.status(409).json({ error: "Username or email is already in use." });
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.authUser.id,
+    {
+      $set: {
+        username: value.username,
+        email: value.email,
+        avatarDataUrl: value.avatarDataUrl,
+      },
+    },
+    { new: true },
+  ).lean();
+
+  return res.json({
+    user: toPublicUser(user),
+  });
+});
+
+app.post("/api/auth/change-password", async (req, res) => {
+  const { value, error } = validatePasswordChangePayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const user = await User.findById(req.authUser.id);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  const isPasswordValid = await bcrypt.compare(value.currentPassword, user.passwordHash);
+  if (!isPasswordValid) {
+    return res.status(401).json({ error: "Current password is incorrect." });
+  }
+
+  user.passwordHash = await bcrypt.hash(value.newPassword, 12);
+  await user.save();
+
+  return res.json({
+    success: true,
+    message: "Password updated successfully.",
+  });
+});
+
+app.post("/api/auth/2fa/setup", async (req, res) => {
+  const user = await User.findById(req.authUser.id);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  const secret = generateTwoFactorSecret(user.username);
+  user.pendingTwoFactorSecretEncrypted = encryptSecret(secret.base32, jwtSecret);
+  await user.save();
+
+  return res.json({
+    qrCodeDataUrl: await toQrCodeDataUrl(secret.otpauth_url),
+    manualKey: secret.base32,
+  });
+});
+
+app.post("/api/auth/2fa/enable", async (req, res) => {
+  const code = String(req.body?.code ?? "").trim();
+  if (!code) {
+    return res.status(400).json({ error: "Verification code is required." });
+  }
+
+  const user = await User.findById(req.authUser.id);
+  if (!user || !user.pendingTwoFactorSecretEncrypted) {
+    return res.status(400).json({ error: "Start 2-step setup first." });
+  }
+
+  const pendingSecret = decryptSecret(user.pendingTwoFactorSecretEncrypted, jwtSecret);
+  const isValidCode = verifyTwoFactorCode(pendingSecret, code);
+  if (!isValidCode) {
+    return res.status(401).json({ error: "Invalid verification code." });
+  }
+
+  user.twoFactorSecretEncrypted = user.pendingTwoFactorSecretEncrypted;
+  user.pendingTwoFactorSecretEncrypted = "";
+  user.twoFactorEnabled = true;
+  await user.save();
+
+  return res.json({
+    user: toPublicUser(user),
+    message: "2-step authentication is now enabled.",
+  });
+});
+
+app.post("/api/auth/2fa/disable", async (req, res) => {
+  const code = String(req.body?.code ?? "").trim();
+  if (!code) {
+    return res.status(400).json({ error: "Verification code is required." });
+  }
+
+  const user = await User.findById(req.authUser.id);
+  if (!user || !user.twoFactorEnabled || !user.twoFactorSecretEncrypted) {
+    return res.status(400).json({ error: "2-step authentication is not enabled." });
+  }
+
+  const activeSecret = decryptSecret(user.twoFactorSecretEncrypted, jwtSecret);
+  const isValidCode = verifyTwoFactorCode(activeSecret, code);
+  if (!isValidCode) {
+    return res.status(401).json({ error: "Invalid verification code." });
+  }
+
+  user.twoFactorEnabled = false;
+  user.twoFactorSecretEncrypted = "";
+  user.pendingTwoFactorSecretEncrypted = "";
+  await user.save();
+
+  return res.json({
+    user: toPublicUser(user),
+    message: "2-step authentication has been disabled.",
   });
 });
 
@@ -890,6 +1154,46 @@ app.post("/api/users", requireAdmin, async (req, res) => {
   });
 
   return res.status(201).json({
+    data: toPublicUser(user),
+  });
+});
+
+app.patch("/api/users/:id/access", requireAdmin, async (req, res) => {
+  const userId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(userId)) {
+    return res.status(400).json({ error: "Invalid user id." });
+  }
+
+  const { value, error } = validateAccessUpdatePayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  if (!value.isAdmin) {
+    if (user.isAdmin) {
+      const adminCount = await User.countDocuments({ isAdmin: true });
+      if (adminCount <= 1) {
+        return res.status(409).json({ error: "At least one admin user must remain." });
+      }
+    }
+
+    const projectIds = value.projectPermissions.map((permission) => permission.projectId);
+    const existingCount = await Project.countDocuments({ _id: { $in: projectIds } });
+    if (existingCount !== projectIds.length) {
+      return res.status(400).json({ error: "One or more project permissions are invalid." });
+    }
+  }
+
+  user.isAdmin = value.isAdmin;
+  user.projectPermissions = value.projectPermissions;
+  await user.save();
+
+  return res.json({
     data: toPublicUser(user),
   });
 });

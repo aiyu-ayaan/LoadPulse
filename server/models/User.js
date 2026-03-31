@@ -32,9 +32,13 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       maxlength: 180,
     },
+    avatarDataUrl: { type: String, default: "", maxlength: 1_500_000 },
     passwordHash: { type: String, required: true },
     isAdmin: { type: Boolean, default: false },
     projectPermissions: { type: [projectPermissionSchema], default: [] },
+    twoFactorEnabled: { type: Boolean, default: false },
+    twoFactorSecretEncrypted: { type: String, default: "" },
+    pendingTwoFactorSecretEncrypted: { type: String, default: "" },
   },
   { timestamps: true },
 );

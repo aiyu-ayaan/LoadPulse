@@ -2,6 +2,8 @@ import jwt from "jsonwebtoken";
 
 export const AUTH_TOKEN_TTL = "7d";
 export const AUTH_TOKEN_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+export const TWO_FACTOR_TOKEN_TTL = "10m";
+export const TWO_FACTOR_TOKEN_MAX_AGE_SECONDS = 10 * 60;
 
 const normalizeProjectId = (value) => String(value ?? "");
 
@@ -9,7 +11,9 @@ export const toPublicUser = (userDoc) => ({
   id: normalizeProjectId(userDoc?._id),
   username: String(userDoc?.username ?? ""),
   email: String(userDoc?.email ?? ""),
+  avatarDataUrl: String(userDoc?.avatarDataUrl ?? ""),
   isAdmin: Boolean(userDoc?.isAdmin),
+  twoFactorEnabled: Boolean(userDoc?.twoFactorEnabled),
   projectPermissions: (userDoc?.projectPermissions ?? []).map((permission) => ({
     projectId: normalizeProjectId(permission?.projectId),
     canView: Boolean(permission?.canView || permission?.canRun),
@@ -26,6 +30,16 @@ export const signAccessToken = (user, jwtSecret) =>
     },
     jwtSecret,
     { expiresIn: AUTH_TOKEN_TTL },
+  );
+
+export const signTwoFactorToken = (user, jwtSecret) =>
+  jwt.sign(
+    {
+      sub: normalizeProjectId(user._id),
+      purpose: "two-factor",
+    },
+    jwtSecret,
+    { expiresIn: TWO_FACTOR_TOKEN_TTL },
   );
 
 export const readBearerToken = (value) => {

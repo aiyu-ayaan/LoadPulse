@@ -28,7 +28,9 @@ export interface AuthUser {
   id: string;
   username: string;
   email: string;
+  avatarDataUrl: string;
   isAdmin: boolean;
+  twoFactorEnabled: boolean;
   projectPermissions: ProjectPermission[];
 }
 
@@ -37,11 +39,23 @@ export interface SignInPayload {
   password: string;
 }
 
-export interface SignInResponse {
+export interface AuthSessionResponse {
   token: string;
   expiresIn: number;
   user: AuthUser;
 }
+
+export interface TwoFactorChallengeResponse {
+  requiresTwoFactor: true;
+  pendingToken: string;
+  expiresIn: number;
+  user: {
+    username: string;
+    email: string;
+  };
+}
+
+export type SignInResponse = AuthSessionResponse | TwoFactorChallengeResponse;
 
 export interface SetupStatusResponse {
   needsSetup: boolean;
@@ -59,6 +73,17 @@ export interface SetupAdminPayload {
   username: string;
   email: string;
   password: string;
+}
+
+export interface UpdateProfilePayload {
+  username: string;
+  email: string;
+  avatarDataUrl: string;
+}
+
+export interface TwoFactorSetupResponse {
+  qrCodeDataUrl: string;
+  manualKey: string;
 }
 
 export interface DashboardKpis {
@@ -240,12 +265,47 @@ export const signIn = (payload: SignInPayload) =>
 export const fetchSetupStatus = () => request<SetupStatusResponse>("/api/auth/setup-status");
 
 export const setupAdminAccount = (payload: SetupAdminPayload) =>
-  request<SignInResponse>("/api/auth/setup-admin", {
+  request<AuthSessionResponse>("/api/auth/setup-admin", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
 export const fetchCurrentUser = () => request<{ user: AuthUser }>("/api/auth/me");
+
+export const verifyTwoFactorSignIn = (payload: { pendingToken: string; code: string }) =>
+  request<AuthSessionResponse>("/api/auth/verify-2fa", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateProfile = (payload: UpdateProfilePayload) =>
+  request<{ user: AuthUser }>("/api/auth/profile", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const changePassword = (payload: { currentPassword: string; newPassword: string }) =>
+  request<{ success: boolean; message: string }>("/api/auth/change-password", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const setupTwoFactor = () =>
+  request<TwoFactorSetupResponse>("/api/auth/2fa/setup", {
+    method: "POST",
+  });
+
+export const enableTwoFactor = (code: string) =>
+  request<{ user: AuthUser; message: string }>("/api/auth/2fa/enable", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+
+export const disableTwoFactor = (code: string) =>
+  request<{ user: AuthUser; message: string }>("/api/auth/2fa/disable", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
 
 export const fetchProjects = () => request<{ data: Project[] }>("/api/projects");
 
@@ -265,6 +325,12 @@ export const fetchUsers = () => request<{ data: AuthUser[] }>("/api/users");
 export const createUser = (payload: CreateUserPayload) =>
   request<{ data: AuthUser }>("/api/users", {
     method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateUserAccess = (id: string, payload: { isAdmin: boolean; projectPermissions: ProjectPermission[] }) =>
+  request<{ data: AuthUser }>(`/api/users/${encodeURIComponent(id)}/access`, {
+    method: "PATCH",
     body: JSON.stringify(payload),
   });
 
