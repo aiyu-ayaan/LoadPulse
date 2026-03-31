@@ -7,6 +7,7 @@ import bcrypt from "bcryptjs";
 import cors from "cors";
 import dotenv from "dotenv";
 import express from "express";
+import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
 import { Project } from "./models/Project.js";
@@ -42,6 +43,10 @@ const mongoUri = process.env.MONGODB_URI;
 const databaseName = process.env.MONGODB_DB ?? "loadpulse";
 const clientOrigin = process.env.CLIENT_ORIGIN?.trim() || "*";
 const jwtSecret = process.env.AUTH_JWT_SECRET?.trim() || randomBytes(48).toString("hex");
+const githubClientId = process.env.GITHUB_CLIENT_ID?.trim() || "";
+const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim() || "";
+const githubCallbackUrl = process.env.GITHUB_CALLBACK_URL?.trim() || "";
+const githubEnabled = Boolean(githubClientId && githubClientSecret && githubCallbackUrl);
 
 if (!mongoUri) {
   throw new Error("MONGODB_URI is required. Add it to your .env file.");
@@ -61,8 +66,22 @@ const parseCorsOrigins = (originValue) => {
     .filter(Boolean);
 };
 
+const resolvePrimaryClientOrigin = (originValue) => {
+  if (!originValue || originValue === "*") {
+    return "http://localhost:5173";
+  }
+
+  return (
+    originValue
+      .split(",")
+      .map((item) => item.trim())
+      .find(Boolean) ?? "http://localhost:5173"
+  );
+};
+
 const toObjectIdString = (value) => String(value ?? "");
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+const clientAppOrigin = resolvePrimaryClientOrigin(clientOrigin);
 
 const emptyDashboard = () => ({
   source: "empty",
@@ -390,70 +409,279 @@ const validateTestPayload = (payload, project) => {
 
 const normalizeUsername = (value) => String(value ?? "").trim().toLowerCase();
 const normalizeEmail = (value) => String(value ?? "").trim().toLowerCase();
+const toPlainObject = (value) => (typeof value?.toObject === "function" ? value.toObject() : value);
+const escapeRegex = (value) => String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const sanitizeProjectPermissions = (permissions) => {
-  if (!Array.isArray(permissions)) {
-    return [];
-  }
+const buildGithubStateToken = () =>
+  jwt.sign(
+    {
+      purpose: "github-oauth",
+    },
+    jwtSecret,
+    { expiresIn: "10m" },
+  );
 
-  const normalized = [];
-  const seen = new Set();
-
-  for (const permission of permissions) {
-    const projectId = String(permission?.projectId ?? "").trim();
-    if (!projectId || !isValidObjectId(projectId) || seen.has(projectId)) {
-      continue;
-    }
-    seen.add(projectId);
-
-    const canRun = Boolean(permission?.canRun);
-    const canView = Boolean(permission?.canView || canRun);
-
-    normalized.push({
-      projectId: new mongoose.Types.ObjectId(projectId),
-      canView,
-      canRun,
-    });
-  }
-
-  return normalized;
+const resolveClientAuthRedirect = (params = {}) => {
+  const url = new URL("/signin", clientAppOrigin);
+  const hash = new URLSearchParams(
+    Object.entries(params)
+      .filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
+      .map(([key, value]) => [key, String(value)]),
+  );
+  url.hash = hash.toString();
+  return url.toString();
 };
 
-const validateCreateUserPayload = (payload) => {
-  const username = normalizeUsername(payload?.username);
-  const email = normalizeEmail(payload?.email);
-  const password = String(payload?.password ?? "");
-  const isAdmin = Boolean(payload?.isAdmin);
-  const projectPermissions = sanitizeProjectPermissions(payload?.projectPermissions);
+const sanitizeUsernameCandidate = (value) => {
+  const sanitized = normalizeUsername(value).replace(/[^a-z0-9._-]/g, "").slice(0, 80);
+  if (sanitized.length >= 3) {
+    return sanitized;
+  }
 
-  if (!username || username.length < 3) {
-    return { error: "Username must be at least 3 characters." };
+  const fallbackSuffix = randomBytes(3).toString("hex");
+  return `user-${fallbackSuffix}`.slice(0, 80);
+};
+
+const ensureUniqueUsername = async (...candidates) => {
+  const firstValid = candidates.map(sanitizeUsernameCandidate).find(Boolean) ?? sanitizeUsernameCandidate("user");
+  let attempt = firstValid;
+  let counter = 1;
+
+  while (await User.exists({ username: attempt })) {
+    const suffix = `${counter}`;
+    const base = firstValid.slice(0, Math.max(3, 80 - suffix.length - 1));
+    attempt = `${base}-${suffix}`;
+    counter += 1;
   }
-  if (!/^[a-z0-9._-]+$/i.test(username)) {
-    return { error: "Username can only include letters, numbers, dot, underscore, and dash." };
+
+  return attempt;
+};
+
+const getUserIdentity = (userLike) => ({
+  id: toObjectIdString(userLike?._id ?? userLike?.id).trim(),
+  email: normalizeEmail(userLike?.email),
+  username: normalizeUsername(userLike?.username),
+  isAdmin: Boolean(userLike?.isAdmin),
+});
+
+const resolveProjectAccess = (project, userLike) => {
+  const identity = getUserIdentity(userLike);
+  if (identity.isAdmin) {
+    return {
+      canView: true,
+      canRun: true,
+      canManage: true,
+      isOwner: false,
+    };
   }
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return { error: "A valid email address is required." };
+
+  const ownerId = toObjectIdString(project?.ownerUserId);
+  const isOwner = Boolean(identity.id && ownerId === identity.id);
+  if (isOwner) {
+    return {
+      canView: true,
+      canRun: true,
+      canManage: true,
+      isOwner: true,
+    };
   }
-  if (!password || password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
-  if (!isAdmin && projectPermissions.length === 0) {
-    return { error: "Select at least one project permission, or mark the user as admin." };
+
+  let canView = false;
+  let canRun = false;
+
+  for (const entry of project?.accessList ?? []) {
+    const entryUserId = toObjectIdString(entry?.userId);
+    const entryEmail = normalizeEmail(entry?.email);
+    const matchesIdentity =
+      (identity.id && entryUserId === identity.id) || (identity.email && entryEmail === identity.email);
+
+    if (!matchesIdentity) {
+      continue;
+    }
+
+    canRun = canRun || Boolean(entry?.canRun);
+    canView = canView || Boolean(entry?.canView || entry?.canRun);
   }
 
   return {
-    value: {
-      username,
-      email,
-      password,
-      isAdmin,
-      projectPermissions: isAdmin ? [] : projectPermissions,
+    canView,
+    canRun,
+    canManage: false,
+    isOwner: false,
+  };
+};
+
+const buildProjectAccessQuery = (userLike, { requireRun = false } = {}) => {
+  const identity = getUserIdentity(userLike);
+  if (!identity.id && !identity.email) {
+    return { _id: { $in: [] } };
+  }
+  if (identity.isAdmin) {
+    return {};
+  }
+
+  const identityMatches = [];
+  if (identity.id && isValidObjectId(identity.id)) {
+    identityMatches.push({ userId: new mongoose.Types.ObjectId(identity.id) });
+  }
+  if (identity.email) {
+    identityMatches.push({ email: identity.email });
+  }
+
+  const ownerConditions = identity.id && isValidObjectId(identity.id) ? [{ ownerUserId: new mongoose.Types.ObjectId(identity.id) }] : [];
+  const permissionClause = requireRun ? { canRun: true } : { $or: [{ canView: true }, { canRun: true }] };
+
+  return {
+    $or: [
+      ...ownerConditions,
+      {
+        accessList: {
+          $elemMatch: {
+            $and: [{ $or: identityMatches }, permissionClause],
+          },
+        },
+      },
+    ],
+  };
+};
+
+const syncUserProjectIdentity = async (userLike) => {
+  const identity = getUserIdentity(userLike);
+  if (!identity.id || !isValidObjectId(identity.id)) {
+    return;
+  }
+
+  const objectId = new mongoose.Types.ObjectId(identity.id);
+  const work = [
+    Project.updateMany(
+      { ownerUserId: objectId },
+      {
+        $set: {
+          ownerEmail: identity.email,
+          ownerUsername: identity.username,
+        },
+      },
+    ),
+    Project.updateMany(
+      { "accessList.userId": objectId },
+      {
+        $set: {
+          "accessList.$[entry].email": identity.email,
+          "accessList.$[entry].username": identity.username,
+        },
+      },
+      {
+        arrayFilters: [{ "entry.userId": objectId }],
+      },
+    ),
+  ];
+
+  if (identity.email) {
+    work.push(
+      Project.updateMany(
+        { "accessList.email": identity.email },
+        {
+          $set: {
+            "accessList.$[entry].userId": objectId,
+            "accessList.$[entry].username": identity.username,
+          },
+        },
+        {
+          arrayFilters: [{ "entry.email": identity.email }],
+        },
+      ),
+    );
+  }
+
+  await Promise.all(work);
+};
+
+const buildSessionUser = async (userDoc) => {
+  const plainUser = toPlainObject(userDoc);
+  await syncUserProjectIdentity(plainUser);
+
+  const projects = await Project.find(buildProjectAccessQuery(plainUser))
+    .select({ _id: 1, ownerUserId: 1, accessList: 1 })
+    .lean();
+
+  const projectPermissions = projects
+    .map((project) => {
+      const access = resolveProjectAccess(project, plainUser);
+      return {
+        projectId: project._id.toString(),
+        canView: access.canView,
+        canRun: access.canRun,
+      };
+    })
+    .filter((permission) => permission.canView || permission.canRun);
+
+  return toPublicUser({
+    ...plainUser,
+    projectPermissions,
+  });
+};
+
+const toProjectResponse = (project, stats, userLike) => {
+  const access = resolveProjectAccess(project, userLike);
+
+  return {
+    id: project._id.toString(),
+    name: project.name,
+    baseUrl: project.baseUrl,
+    description: project.description ?? "",
+    createdAt: project.createdAt,
+    updatedAt: project.updatedAt,
+    owner: {
+      username: project.ownerUsername,
+      email: project.ownerEmail,
+    },
+    access: {
+      canView: access.canView,
+      canRun: access.canRun,
+      canManage: access.canManage,
+      isOwner: access.isOwner,
+      sharedMemberCount: Array.isArray(project.accessList) ? project.accessList.length : 0,
+    },
+    stats: stats ?? {
+      totalRuns: 0,
+      activeRuns: 0,
+      successfulRuns: 0,
+      successRatePct: 0,
+      lastRunAt: null,
+      lastRunStatus: null,
+      lastRunName: null,
     },
   };
 };
 
-const validateSetupAdminPayload = (payload) => {
+const toSharedMemberResponse = (project, entry, linkedUser) => ({
+  key: normalizeEmail(entry?.email),
+  email: normalizeEmail(entry?.email),
+  username: linkedUser?.username ?? entry?.username ?? "",
+  avatarDataUrl: linkedUser?.avatarDataUrl ?? "",
+  githubLinked: Boolean(linkedUser?.githubId),
+  hasAccount: Boolean(linkedUser),
+  canView: Boolean(entry?.canView || entry?.canRun),
+  canRun: Boolean(entry?.canRun),
+  isOwner: false,
+  joinedVia: linkedUser?.githubId ? "github" : linkedUser ? "local" : "pending",
+});
+
+const ensureProjectManageAccess = async (projectId, authUser) => {
+  const project = await Project.findById(projectId);
+  if (!project) {
+    return { error: { status: 404, message: "Project not found." } };
+  }
+
+  const access = resolveProjectAccess(project, authUser);
+  if (!access.canManage) {
+    return { error: { status: 403, message: "Only the project owner can manage sharing for this project." } };
+  }
+
+  return { project, access };
+};
+
+const validateSignUpPayload = (payload) => {
   const username = normalizeUsername(payload?.username);
   const email = normalizeEmail(payload?.email);
   const password = String(payload?.password ?? "");
@@ -476,6 +704,27 @@ const validateSetupAdminPayload = (payload) => {
       username,
       email,
       password,
+    },
+  };
+};
+
+const validateProjectSharePayload = (payload) => {
+  const email = normalizeEmail(payload?.email);
+  const canRun = Boolean(payload?.canRun);
+  const canView = Boolean(payload?.canView || canRun);
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { error: "A valid email address is required." };
+  }
+  if (!canView && !canRun) {
+    return { error: "Choose at least view access before sharing a project." };
+  }
+
+  return {
+    value: {
+      email,
+      canView,
+      canRun,
     },
   };
 };
@@ -529,22 +778,6 @@ const validatePasswordChangePayload = (payload) => {
   };
 };
 
-const validateAccessUpdatePayload = (payload) => {
-  const isAdmin = Boolean(payload?.isAdmin);
-  const projectPermissions = sanitizeProjectPermissions(payload?.projectPermissions);
-
-  if (!isAdmin && projectPermissions.length === 0) {
-    return { error: "Select at least one project permission, or make the user an admin." };
-  }
-
-  return {
-    value: {
-      isAdmin,
-      projectPermissions: isAdmin ? [] : projectPermissions,
-    },
-  };
-};
-
 const authenticateRequest = async (req, res, next) => {
   const token = readBearerToken(req.headers.authorization);
   if (!token) {
@@ -568,14 +801,7 @@ const authenticateRequest = async (req, res, next) => {
     return res.status(401).json({ error: "User account no longer exists." });
   }
 
-  req.authUser = toPublicUser(user);
-  return next();
-};
-
-const requireAdmin = (req, res, next) => {
-  if (!req.authUser?.isAdmin) {
-    return res.status(403).json({ error: "Admin access is required for this action." });
-  }
+  req.authUser = await buildSessionUser(user);
   return next();
 };
 
@@ -707,7 +933,7 @@ io.use(async (socket, next) => {
     return next(new Error("User not found"));
   }
 
-  socket.data.authUser = toPublicUser(user);
+  socket.data.authUser = await buildSessionUser(user);
   return next();
 });
 
@@ -752,20 +978,52 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-app.get("/api/auth/setup-status", async (_req, res) => {
-  const adminExists = await User.exists({ isAdmin: true });
+const createSessionResponse = async (user) => ({
+  token: signAccessToken(user, jwtSecret),
+  expiresIn: AUTH_TOKEN_MAX_AGE_SECONDS,
+  user: await buildSessionUser(user),
+});
+
+const fetchGithubJson = async (url, init = {}, defaultErrorMessage) => {
+  const response = await fetch(url, init);
+  const raw = await response.text();
+
+  let data = null;
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const message = data?.error_description || data?.message || defaultErrorMessage;
+    throw new Error(message);
+  }
+
+  return data;
+};
+
+const redirectWithAuthError = (res, message) => res.redirect(resolveClientAuthRedirect({ error: message }));
+
+app.get("/api/auth/options", async (_req, res) => {
+  const userExists = await User.exists({});
   return res.json({
-    needsSetup: !adminExists,
+    localEnabled: true,
+    githubEnabled,
+    hasUsers: Boolean(userExists),
   });
 });
 
-app.post("/api/auth/setup-admin", async (req, res) => {
-  const adminExists = await User.exists({ isAdmin: true });
-  if (adminExists) {
-    return res.status(409).json({ error: "Initial setup is already complete." });
-  }
+app.get("/api/auth/setup-status", async (_req, res) => {
+  const userExists = await User.exists({});
+  return res.json({
+    needsSetup: !userExists,
+    githubEnabled,
+  });
+});
 
-  const { value, error } = validateSetupAdminPayload(req.body);
+app.post("/api/auth/signup", async (req, res) => {
+  const { value, error } = validateSignUpPayload(req.body);
   if (error) {
     return res.status(400).json({ error });
   }
@@ -782,16 +1040,32 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     username: value.username,
     email: value.email,
     passwordHash,
-    isAdmin: true,
-    projectPermissions: [],
   });
 
-  const token = signAccessToken(user, jwtSecret);
-  return res.status(201).json({
-    token,
-    expiresIn: AUTH_TOKEN_MAX_AGE_SECONDS,
-    user: toPublicUser(user),
+  return res.status(201).json(await createSessionResponse(user));
+});
+
+app.post("/api/auth/setup-admin", async (req, res) => {
+  const { value, error } = validateSignUpPayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const duplicateAccount = await User.findOne({
+    $or: [{ username: value.username }, { email: value.email }],
+  }).lean();
+  if (duplicateAccount) {
+    return res.status(409).json({ error: "Username or email is already in use." });
+  }
+
+  const passwordHash = await bcrypt.hash(value.password, 12);
+  const user = await User.create({
+    username: value.username,
+    email: value.email,
+    passwordHash,
   });
+
+  return res.status(201).json(await createSessionResponse(user));
 });
 
 app.post("/api/auth/signin", async (req, res) => {
@@ -802,14 +1076,12 @@ app.post("/api/auth/signin", async (req, res) => {
     return res.status(400).json({ error: "Username and password are required." });
   }
 
-  const adminExists = await User.exists({ isAdmin: true });
-  if (!adminExists) {
-    return res.status(409).json({ error: "No admin account exists yet. Complete initial setup first." });
-  }
-
   const user = await User.findOne({ username });
   if (!user) {
     return res.status(401).json({ error: "Invalid username or password." });
+  }
+  if (!user.passwordHash) {
+    return res.status(401).json({ error: "This account does not have a password yet. Use GitHub sign-in instead." });
   }
 
   const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
@@ -830,12 +1102,161 @@ app.post("/api/auth/signin", async (req, res) => {
     });
   }
 
-  const token = signAccessToken(user, jwtSecret);
-  return res.json({
-    token,
-    expiresIn: AUTH_TOKEN_MAX_AGE_SECONDS,
-    user: toPublicUser(user),
-  });
+  return res.json(await createSessionResponse(user));
+});
+
+app.get("/api/auth/github/start", async (_req, res) => {
+  if (!githubEnabled) {
+    return res.status(404).json({ error: "GitHub sign-in is not configured." });
+  }
+
+  const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
+  authorizeUrl.searchParams.set("client_id", githubClientId);
+  authorizeUrl.searchParams.set("redirect_uri", githubCallbackUrl);
+  authorizeUrl.searchParams.set("scope", "read:user user:email");
+  authorizeUrl.searchParams.set("state", buildGithubStateToken());
+
+  return res.redirect(authorizeUrl.toString());
+});
+
+app.get("/api/auth/github/callback", async (req, res) => {
+  if (!githubEnabled) {
+    return redirectWithAuthError(res, "GitHub sign-in is not configured for this environment.");
+  }
+
+  const code = String(req.query.code ?? "").trim();
+  const state = String(req.query.state ?? "").trim();
+  if (!code || !state) {
+    return redirectWithAuthError(res, "GitHub sign-in could not be completed.");
+  }
+
+  try {
+    const payload = jwt.verify(state, jwtSecret);
+    if (payload?.purpose !== "github-oauth") {
+      return redirectWithAuthError(res, "GitHub sign-in session is invalid.");
+    }
+  } catch {
+    return redirectWithAuthError(res, "GitHub sign-in session expired. Try again.");
+  }
+
+  try {
+    const tokenPayload = await fetchGithubJson(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "User-Agent": "LoadPulse",
+        },
+        body: JSON.stringify({
+          client_id: githubClientId,
+          client_secret: githubClientSecret,
+          code,
+          redirect_uri: githubCallbackUrl,
+        }),
+      },
+      "Unable to exchange the GitHub authorization code.",
+    );
+
+    const githubAccessToken = String(tokenPayload?.access_token ?? "").trim();
+    if (!githubAccessToken) {
+      return redirectWithAuthError(res, "GitHub did not return an access token.");
+    }
+
+    const [profile, emailRows] = await Promise.all([
+      fetchGithubJson(
+        "https://api.github.com/user",
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${githubAccessToken}`,
+            "User-Agent": "LoadPulse",
+          },
+        },
+        "Unable to load the GitHub profile.",
+      ),
+      fetchGithubJson(
+        "https://api.github.com/user/emails",
+        {
+          headers: {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${githubAccessToken}`,
+            "User-Agent": "LoadPulse",
+          },
+        },
+        "Unable to read GitHub email addresses.",
+      ),
+    ]);
+
+    const githubId = String(profile?.id ?? "").trim();
+    const githubUsername = normalizeUsername(profile?.login);
+    const avatarUrl = String(profile?.avatar_url ?? "").trim();
+    const emailList = Array.isArray(emailRows) ? emailRows : [];
+    const primaryEmailRow =
+      emailList.find((entry) => entry?.primary && entry?.verified && entry?.email) ??
+      emailList.find((entry) => entry?.verified && entry?.email) ??
+      emailList.find((entry) => entry?.email);
+    const email = normalizeEmail(primaryEmailRow?.email ?? profile?.email);
+
+    if (!githubId || !email) {
+      return redirectWithAuthError(res, "A verified email is required on your GitHub account.");
+    }
+
+    let user = await User.findOne({ githubId });
+    if (!user) {
+      user = await User.findOne({ email });
+    }
+
+    if (!user) {
+      const username = await ensureUniqueUsername(githubUsername, email.split("@")[0], profile?.name);
+      user = await User.create({
+        username,
+        email,
+        githubId,
+        githubUsername,
+        avatarDataUrl: avatarUrl,
+      });
+    } else {
+      user.githubId = githubId;
+      user.githubUsername = githubUsername || user.githubUsername;
+      if (!user.avatarDataUrl && avatarUrl) {
+        user.avatarDataUrl = avatarUrl;
+      }
+
+      if (user.email !== email) {
+        const conflictingUser = await User.findOne({ _id: { $ne: user._id }, email }).lean();
+        if (!conflictingUser) {
+          user.email = email;
+        }
+      }
+
+      await user.save();
+    }
+
+    await syncUserProjectIdentity(user);
+
+    if (user.twoFactorEnabled) {
+      const pendingToken = signTwoFactorToken(user, jwtSecret);
+      return res.redirect(
+        resolveClientAuthRedirect({
+          requiresTwoFactor: "1",
+          pendingToken,
+          username: user.username,
+          email: user.email,
+        }),
+      );
+    }
+
+    const session = await createSessionResponse(user);
+    return res.redirect(
+      resolveClientAuthRedirect({
+        token: session.token,
+      }),
+    );
+  } catch (error) {
+    return redirectWithAuthError(res, String(error?.message ?? error ?? "GitHub sign-in failed."));
+  }
 });
 
 app.post("/api/auth/verify-2fa", async (req, res) => {
@@ -873,18 +1294,17 @@ app.post("/api/auth/verify-2fa", async (req, res) => {
     return res.status(401).json({ error: "Invalid verification code." });
   }
 
-  const token = signAccessToken(user, jwtSecret);
-  return res.json({
-    token,
-    expiresIn: AUTH_TOKEN_MAX_AGE_SECONDS,
-    user: toPublicUser(user),
-  });
+  return res.json(await createSessionResponse(user));
 });
 
 app.use("/api", (req, res, next) => {
   if (
     req.path === "/health" ||
+    req.path === "/auth/options" ||
+    req.path === "/auth/signup" ||
     req.path === "/auth/signin" ||
+    req.path === "/auth/github/start" ||
+    req.path === "/auth/github/callback" ||
     req.path === "/auth/verify-2fa" ||
     req.path === "/auth/setup-status" ||
     req.path === "/auth/setup-admin"
@@ -924,10 +1344,12 @@ app.patch("/api/auth/profile", async (req, res) => {
       },
     },
     { new: true },
-  ).lean();
+  );
+
+  await syncUserProjectIdentity(user);
 
   return res.json({
-    user: toPublicUser(user),
+    user: await buildSessionUser(user),
   });
 });
 
@@ -940,6 +1362,9 @@ app.post("/api/auth/change-password", async (req, res) => {
   const user = await User.findById(req.authUser.id);
   if (!user) {
     return res.status(404).json({ error: "User not found." });
+  }
+  if (!user.passwordHash) {
+    return res.status(400).json({ error: "This account currently signs in with GitHub only." });
   }
 
   const isPasswordValid = await bcrypt.compare(value.currentPassword, user.passwordHash);
@@ -995,7 +1420,7 @@ app.post("/api/auth/2fa/enable", async (req, res) => {
   await user.save();
 
   return res.json({
-    user: toPublicUser(user),
+    user: await buildSessionUser(user),
     message: "2-step authentication is now enabled.",
   });
 });
@@ -1023,7 +1448,7 @@ app.post("/api/auth/2fa/disable", async (req, res) => {
   await user.save();
 
   return res.json({
-    user: toPublicUser(user),
+    user: await buildSessionUser(user),
     message: "2-step authentication has been disabled.",
   });
 });
@@ -1037,63 +1462,37 @@ app.get("/api/projects", async (req, res) => {
   ]);
 
   res.json({
-    data: projects.map((project) => ({
-      id: project._id.toString(),
-      name: project.name,
-      baseUrl: project.baseUrl,
-      description: project.description ?? "",
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-      stats: statsMap.get(project._id.toString()) ?? {
-        totalRuns: 0,
-        activeRuns: 0,
-        successfulRuns: 0,
-        successRatePct: 0,
-        lastRunAt: null,
-        lastRunStatus: null,
-        lastRunName: null,
-      },
-    })),
+    data: projects.map((project) => toProjectResponse(project, statsMap.get(project._id.toString()), req.authUser)),
   });
 });
 
-app.post("/api/projects", requireAdmin, async (req, res) => {
+app.post("/api/projects", async (req, res) => {
   const { value, error } = validateProjectPayload(req.body);
   if (error) {
     return res.status(400).json({ error });
   }
 
-  const project = await Project.create(value);
+  const project = await Project.create({
+    ...value,
+    ownerUserId: new mongoose.Types.ObjectId(req.authUser.id),
+    ownerEmail: req.authUser.email,
+    ownerUsername: req.authUser.username,
+    accessList: [],
+  });
   return res.status(201).json({
-    data: {
-      id: project._id.toString(),
-      name: project.name,
-      baseUrl: project.baseUrl,
-      description: project.description ?? "",
-      createdAt: project.createdAt,
-      updatedAt: project.updatedAt,
-      stats: {
-        totalRuns: 0,
-        activeRuns: 0,
-        successfulRuns: 0,
-        successRatePct: 0,
-        lastRunAt: null,
-        lastRunStatus: null,
-        lastRunName: null,
-      },
-    },
+    data: toProjectResponse(project, undefined, req.authUser),
   });
 });
 
-app.delete("/api/projects/:id", requireAdmin, async (req, res) => {
+app.delete("/api/projects/:id", async (req, res) => {
   const projectId = String(req.params.id ?? "").trim();
   if (!isValidObjectId(projectId)) {
     return res.status(400).json({ error: "Invalid project id." });
   }
 
-  const project = await Project.findById(projectId).lean();
-  if (!project) {
-    return res.status(404).json({ error: "Project not found." });
+  const { project, error } = await ensureProjectManageAccess(projectId, req.authUser);
+  if (error) {
+    return res.status(error.status).json({ error: error.message });
   }
 
   const activeCount = await TestRun.countDocuments({
@@ -1108,7 +1507,6 @@ app.delete("/api/projects/:id", requireAdmin, async (req, res) => {
 
   const deletedRuns = await TestRun.deleteMany({ projectId });
   await Project.deleteOne({ _id: projectId });
-  await User.updateMany({}, { $pull: { projectPermissions: { projectId: new mongoose.Types.ObjectId(projectId) } } });
 
   return res.json({
     success: true,
@@ -1116,85 +1514,151 @@ app.delete("/api/projects/:id", requireAdmin, async (req, res) => {
   });
 });
 
-app.get("/api/users", requireAdmin, async (_req, res) => {
-  const users = await User.find().sort({ createdAt: -1 }).lean();
+app.get("/api/users/search", async (req, res) => {
+  const query = String(req.query.q ?? "").trim();
+  if (query.length < 2) {
+    return res.json({ data: [] });
+  }
+
+  const matcher = new RegExp(escapeRegex(query), "i");
+  const users = await User.find({
+    $or: [{ username: { $regex: matcher } }, { email: { $regex: matcher } }],
+  })
+    .sort({ createdAt: -1 })
+    .limit(8)
+    .lean();
+
   return res.json({
-    data: users.map(toPublicUser),
+    data: users.map((user) => ({
+      id: user._id.toString(),
+      username: user.username,
+      email: user.email,
+      avatarDataUrl: user.avatarDataUrl ?? "",
+      githubLinked: Boolean(user.githubId),
+    })),
   });
 });
 
-app.post("/api/users", requireAdmin, async (req, res) => {
-  const { value, error } = validateCreateUserPayload(req.body);
+app.get("/api/projects/:id/access", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const accessResult = await ensureProjectManageAccess(projectId, req.authUser);
+  if (accessResult.error) {
+    return res.status(accessResult.error.status).json({ error: accessResult.error.message });
+  }
+
+  const project = accessResult.project.toObject();
+  const sharedEmails = [...new Set((project.accessList ?? []).map((entry) => normalizeEmail(entry.email)).filter(Boolean))];
+  const linkedUsers = sharedEmails.length
+    ? await User.find({ email: { $in: sharedEmails } })
+        .select({ username: 1, email: 1, avatarDataUrl: 1, githubId: 1 })
+        .lean()
+    : [];
+  const usersByEmail = new Map(linkedUsers.map((user) => [normalizeEmail(user.email), user]));
+
+  return res.json({
+    data: {
+      projectId,
+      owner: {
+        email: project.ownerEmail,
+        username: project.ownerUsername,
+        avatarDataUrl: req.authUser.id === toObjectIdString(project.ownerUserId) ? req.authUser.avatarDataUrl : "",
+        githubLinked: req.authUser.id === toObjectIdString(project.ownerUserId) ? req.authUser.githubLinked : false,
+        canView: true,
+        canRun: true,
+        isOwner: true,
+      },
+      members: (project.accessList ?? []).map((entry) =>
+        toSharedMemberResponse(project, entry, usersByEmail.get(normalizeEmail(entry.email))),
+      ),
+    },
+  });
+});
+
+app.post("/api/projects/:id/access", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const { value, error } = validateProjectSharePayload(req.body);
   if (error) {
     return res.status(400).json({ error });
   }
 
-  if (!value.isAdmin) {
-    const projectIds = value.projectPermissions.map((permission) => permission.projectId);
-    const existingCount = await Project.countDocuments({ _id: { $in: projectIds } });
-    if (existingCount !== projectIds.length) {
-      return res.status(400).json({ error: "One or more project permissions are invalid." });
-    }
+  const accessResult = await ensureProjectManageAccess(projectId, req.authUser);
+  if (accessResult.error) {
+    return res.status(accessResult.error.status).json({ error: accessResult.error.message });
   }
 
-  const existingUser = await User.findOne({
-    $or: [{ username: value.username }, { email: value.email }],
-  });
-  if (existingUser) {
-    return res.status(409).json({ error: "A user with that username or email already exists." });
+  const project = accessResult.project;
+  if (value.email === normalizeEmail(project.ownerEmail)) {
+    return res.status(409).json({ error: "The project owner already has full access." });
   }
 
-  const passwordHash = await bcrypt.hash(value.password, 12);
-  const user = await User.create({
-    username: value.username,
+  const linkedUser = await User.findOne({ email: value.email }).lean();
+  const nextEntry = {
     email: value.email,
-    passwordHash,
-    isAdmin: value.isAdmin,
-    projectPermissions: value.projectPermissions,
-  });
+    username: linkedUser?.username ?? "",
+    userId: linkedUser?._id ?? null,
+    canView: value.canView,
+    canRun: value.canRun,
+  };
+
+  const existingIndex = (project.accessList ?? []).findIndex((entry) => normalizeEmail(entry.email) === value.email);
+  if (existingIndex >= 0) {
+    project.accessList[existingIndex] = nextEntry;
+  } else {
+    project.accessList.push(nextEntry);
+  }
+
+  await project.save();
 
   return res.status(201).json({
-    data: toPublicUser(user),
+    data: {
+      key: value.email,
+      email: value.email,
+      username: linkedUser?.username ?? "",
+      avatarDataUrl: linkedUser?.avatarDataUrl ?? "",
+      githubLinked: Boolean(linkedUser?.githubId),
+      hasAccount: Boolean(linkedUser),
+      canView: value.canView,
+      canRun: value.canRun,
+      isOwner: false,
+      joinedVia: linkedUser?.githubId ? "github" : linkedUser ? "local" : "pending",
+    },
   });
 });
 
-app.patch("/api/users/:id/access", requireAdmin, async (req, res) => {
-  const userId = String(req.params.id ?? "").trim();
-  if (!isValidObjectId(userId)) {
-    return res.status(400).json({ error: "Invalid user id." });
+app.delete("/api/projects/:id/access", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  const email = normalizeEmail(req.query.email);
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+  if (!email) {
+    return res.status(400).json({ error: "A valid email is required." });
   }
 
-  const { value, error } = validateAccessUpdatePayload(req.body);
-  if (error) {
-    return res.status(400).json({ error });
+  const accessResult = await ensureProjectManageAccess(projectId, req.authUser);
+  if (accessResult.error) {
+    return res.status(accessResult.error.status).json({ error: accessResult.error.message });
   }
 
-  const user = await User.findById(userId);
-  if (!user) {
-    return res.status(404).json({ error: "User not found." });
+  const project = accessResult.project;
+  const originalLength = project.accessList.length;
+  project.accessList = project.accessList.filter((entry) => normalizeEmail(entry.email) !== email);
+  if (project.accessList.length === originalLength) {
+    return res.status(404).json({ error: "That shared access entry was not found." });
   }
 
-  if (!value.isAdmin) {
-    if (user.isAdmin) {
-      const adminCount = await User.countDocuments({ isAdmin: true });
-      if (adminCount <= 1) {
-        return res.status(409).json({ error: "At least one admin user must remain." });
-      }
-    }
-
-    const projectIds = value.projectPermissions.map((permission) => permission.projectId);
-    const existingCount = await Project.countDocuments({ _id: { $in: projectIds } });
-    if (existingCount !== projectIds.length) {
-      return res.status(400).json({ error: "One or more project permissions are invalid." });
-    }
-  }
-
-  user.isAdmin = value.isAdmin;
-  user.projectPermissions = value.projectPermissions;
-  await user.save();
+  await project.save();
 
   return res.json({
-    data: toPublicUser(user),
+    success: true,
   });
 });
 

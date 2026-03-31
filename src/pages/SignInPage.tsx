@@ -1,12 +1,16 @@
-import { useEffect, useState, type FormEvent } from "react";
-import { KeyRound, Lock, User } from "lucide-react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { GitBranch, KeyRound, Lock, Mail, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/useAuth";
-import { fetchSetupStatus } from "../lib/api";
+import { fetchAuthOptions, getGitHubAuthStartUrl } from "../lib/api";
+
+type AuthMode = "signin" | "signup";
 
 export const SignInPage = () => {
   const navigate = useNavigate();
-  const { signInWithPassword, completeTwoFactorSignIn, initializeAdminAccount } = useAuth();
+  const { signInWithPassword, signUpWithPassword, completeTwoFactorSignIn, hydrateSessionFromToken } = useAuth();
+
+  const [mode, setMode] = useState<AuthMode>("signin");
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -14,27 +18,90 @@ export const SignInPage = () => {
   const [twoFactorCode, setTwoFactorCode] = useState("");
   const [pendingToken, setPendingToken] = useState("");
   const [challengeIdentity, setChallengeIdentity] = useState<{ username: string; email: string } | null>(null);
-  const [needsSetup, setNeedsSetup] = useState(false);
-  const [isCheckingSetup, setIsCheckingSetup] = useState(true);
+  const [githubEnabled, setGithubEnabled] = useState(false);
+  const [hasUsers, setHasUsers] = useState(true);
+  const [isCheckingOptions, setIsCheckingOptions] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadSetupState = async () => {
+    const loadAuthOptions = async () => {
       try {
-        const response = await fetchSetupStatus();
-        setNeedsSetup(response.needsSetup);
+        const response = await fetchAuthOptions();
+        setGithubEnabled(response.githubEnabled);
+        setHasUsers(response.hasUsers);
+        setMode(response.hasUsers ? "signin" : "signup");
       } catch {
-        setNeedsSetup(false);
+        setGithubEnabled(false);
+        setHasUsers(true);
       } finally {
-        setIsCheckingSetup(false);
+        setIsCheckingOptions(false);
       }
     };
 
-    void loadSetupState();
+    void loadAuthOptions();
   }, []);
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+  useEffect(() => {
+    const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : "";
+    if (!hash) {
+      return;
+    }
+
+    const params = new URLSearchParams(hash);
+    const token = params.get("token");
+    const nextError = params.get("error");
+    const requiresTwoFactor = params.get("requiresTwoFactor") === "1";
+    const nextPendingToken = params.get("pendingToken") ?? "";
+    const nextUsername = params.get("username") ?? "";
+    const nextEmail = params.get("email") ?? "";
+
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+
+    if (nextError) {
+      setError(nextError);
+      return;
+    }
+
+    if (requiresTwoFactor && nextPendingToken) {
+      setPendingToken(nextPendingToken);
+      setChallengeIdentity({ username: nextUsername, email: nextEmail });
+      setError(null);
+      return;
+    }
+
+    if (token) {
+      setIsSubmitting(true);
+      void hydrateSessionFromToken(token)
+        .then(() => navigate("/projects", { replace: true }))
+        .catch((requestError) => {
+          setError(requestError instanceof Error ? requestError.message : "Unable to finish sign-in.");
+        })
+        .finally(() => setIsSubmitting(false));
+    }
+  }, [hydrateSessionFromToken, navigate]);
+
+  const title = useMemo(() => {
+    if (pendingToken) {
+      return "Check your authenticator";
+    }
+    if (!hasUsers || mode === "signup") {
+      return "Create your account";
+    }
+    return "Sign in to continue";
+  }, [hasUsers, mode, pendingToken]);
+
+  const subtitle = useMemo(() => {
+    if (pendingToken) {
+      return "Enter the 6-digit code from your authenticator app to finish signing in.";
+    }
+    if (!hasUsers || mode === "signup") {
+      return "Create a workspace account to start creating projects, running tests, and sharing access.";
+    }
+    return "Use your username and password, or continue with GitHub when it is connected.";
+  }, [hasUsers, mode, pendingToken]);
+
+  const handlePasswordAuth = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
     setIsSubmitting(true);
@@ -46,174 +113,216 @@ export const SignInPage = () => {
         return;
       }
 
-      if (needsSetup) {
-        if (!email.trim()) {
-          setError("Email is required.");
-          setIsSubmitting(false);
-          return;
-        }
+      if (mode === "signup") {
         if (password !== confirmPassword) {
           setError("Passwords do not match.");
-          setIsSubmitting(false);
           return;
         }
-        await initializeAdminAccount(username, email, password);
+        await signUpWithPassword(username, email, password);
         navigate("/projects", { replace: true });
-      } else {
-        const session = await signInWithPassword(username, password);
-        if ("requiresTwoFactor" in session && session.requiresTwoFactor) {
-          setPendingToken(session.pendingToken);
-          setChallengeIdentity(session.user);
-          setTwoFactorCode("");
-          return;
-        }
-        navigate("/projects", { replace: true });
+        return;
       }
+
+      const session = await signInWithPassword(username, password);
+      if ("requiresTwoFactor" in session && session.requiresTwoFactor) {
+        setPendingToken(session.pendingToken);
+        setChallengeIdentity(session.user);
+        setTwoFactorCode("");
+        return;
+      }
+
+      navigate("/projects", { replace: true });
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Unable to sign in.");
+      setError(requestError instanceof Error ? requestError.message : "Unable to continue.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const isTwoFactorStep = Boolean(pendingToken);
+  if (isCheckingOptions) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-200">
+        <p className="text-sm">Preparing your workspace...</p>
+      </div>
+    );
+  }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-slate-950 px-4 py-10">
-      <div className="pointer-events-none absolute inset-0 opacity-70">
-        <div className="absolute left-1/2 top-[-120px] h-[420px] w-[420px] -translate-x-1/2 rounded-full bg-primary/20 blur-3xl" />
-        <div className="absolute bottom-[-120px] right-[-120px] h-[360px] w-[360px] rounded-full bg-secondary-purple/20 blur-3xl" />
-      </div>
-
-      <div className="relative w-full max-w-md rounded-3xl border border-white/10 bg-slate-900/85 p-8 shadow-2xl backdrop-blur-xl">
-        <div className="mb-8 text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary">LoadPulse Access</p>
-          <h1 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
-            {isTwoFactorStep ? "Enter Verification Code" : needsSetup ? "Create Admin Account" : "Sign in to continue"}
-          </h1>
-          <p className="mt-2 text-sm text-slate-400">
-            {isTwoFactorStep
-              ? `Open your authenticator app for ${challengeIdentity?.username ?? "this account"} and enter the 6-digit code.`
-              : needsSetup
-                ? "First launch detected. Create the first admin account to finish setup."
-                : "Use your team credentials to access projects and run tests."}
-          </p>
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(139,92,246,0.2),transparent_34%),#020617] px-4 py-10 text-slate-100">
+      <div className="glass-panel w-full max-w-[480px] rounded-[2rem] border border-white/10 p-8 shadow-[0_24px_80px_rgba(2,6,23,0.55)]">
+        <div className="space-y-3 text-center">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">LoadPulse Access</p>
+          <h1 className="text-4xl font-bold tracking-tight text-white">{title}</h1>
+          <p className="text-sm leading-6 text-slate-400">{subtitle}</p>
         </div>
 
-        {isCheckingSetup && <div className="mb-4 text-center text-sm text-slate-400">Checking first-run setup...</div>}
-
-        <form onSubmit={(event) => void handleSubmit(event)} className="space-y-4">
-          {isTwoFactorStep ? (
-            <label className="block space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Authenticator Code</span>
-              <div className="relative">
-                <KeyRound className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
-                <input
-                  value={twoFactorCode}
-                  onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, "").slice(0, 6))}
-                  placeholder="123456"
-                  inputMode="numeric"
-                  className="h-11 w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition-colors focus:border-primary/60"
-                />
-              </div>
-            </label>
-          ) : (
-            <>
-              <label className="block space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Username</span>
-                <div className="relative">
-                  <User className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
-                  <input
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                    placeholder="Enter username"
-                    className="h-11 w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition-colors focus:border-primary/60"
-                  />
-                </div>
-              </label>
-
-              {needsSetup && (
-                <label className="block space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Email</span>
-                  <div className="relative">
-                    <User className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      placeholder="admin@example.com"
-                      className="h-11 w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition-colors focus:border-primary/60"
-                    />
-                  </div>
-                </label>
-              )}
-
-              <label className="block space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Password</span>
-                <div className="relative">
-                  <Lock className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="Enter password"
-                    className="h-11 w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition-colors focus:border-primary/60"
-                  />
-                </div>
-              </label>
-
-              {needsSetup && (
-                <label className="block space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Confirm Password</span>
-                  <div className="relative">
-                    <Lock className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
-                    <input
-                      type="password"
-                      value={confirmPassword}
-                      onChange={(event) => setConfirmPassword(event.target.value)}
-                      placeholder="Re-enter password"
-                      className="h-11 w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none transition-colors focus:border-primary/60"
-                    />
-                  </div>
-                </label>
-              )}
-            </>
-          )}
-
-          {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div>}
-
-          <button
-            type="submit"
-            disabled={isSubmitting || isCheckingSetup}
-            className="mt-2 flex h-11 w-full items-center justify-center rounded-xl bg-primary text-sm font-semibold text-white transition hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-65"
-          >
-            {isSubmitting
-              ? isTwoFactorStep
-                ? "Verifying..."
-                : needsSetup
-                  ? "Creating account..."
-                  : "Signing in..."
-              : isTwoFactorStep
-                ? "Verify And Continue"
-                : needsSetup
-                  ? "Create Admin Account"
-                  : "Sign In"}
-          </button>
-
-          {isTwoFactorStep && (
+        {!pendingToken && hasUsers && (
+          <div className="mt-6 flex rounded-2xl border border-white/10 bg-white/[0.03] p-1">
             <button
               type="button"
               onClick={() => {
-                setPendingToken("");
-                setChallengeIdentity(null);
-                setTwoFactorCode("");
+                setMode("signin");
                 setError(null);
               }}
-              className="w-full text-sm text-slate-400 transition hover:text-white"
+              className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                mode === "signin" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"
+              }`}
             >
-              Use a different account
+              Sign In
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("signup");
+                setError(null);
+              }}
+              className={`flex-1 rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                mode === "signup" ? "bg-primary text-white" : "text-slate-300 hover:bg-white/5"
+              }`}
+            >
+              Create Account
+            </button>
+          </div>
+        )}
+
+        {githubEnabled && !pendingToken && (
+          <button
+            type="button"
+            disabled={isSubmitting}
+            onClick={() => {
+              window.location.href = getGitHubAuthStartUrl();
+            }}
+            className="mt-6 flex w-full items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/[0.08] disabled:opacity-60"
+          >
+            <GitBranch className="h-4 w-4" />
+            Continue With GitHub
+          </button>
+        )}
+
+        {githubEnabled && !pendingToken && (
+          <div className="my-6 flex items-center gap-4 text-xs uppercase tracking-[0.22em] text-slate-500">
+            <div className="h-px flex-1 bg-white/10" />
+            <span>or</span>
+            <div className="h-px flex-1 bg-white/10" />
+          </div>
+        )}
+
+        <form className="space-y-4" onSubmit={(event) => void handlePasswordAuth(event)}>
+          {!pendingToken && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Username</label>
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value.toLowerCase())}
+                  placeholder="your-username"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/35 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                />
+              </div>
+            </div>
           )}
+
+          {!pendingToken && mode === "signup" && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Email</label>
+              <div className="relative">
+                <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value.toLowerCase())}
+                  placeholder="you@example.com"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/35 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                />
+              </div>
+            </div>
+          )}
+
+          {!pendingToken && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Password</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder={mode === "signup" ? "Create password" : "Enter password"}
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/35 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                />
+              </div>
+            </div>
+          )}
+
+          {!pendingToken && mode === "signup" && (
+            <div className="space-y-2">
+              <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Confirm Password</label>
+              <div className="relative">
+                <Lock className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(event) => setConfirmPassword(event.target.value)}
+                  placeholder="Repeat password"
+                  className="w-full rounded-2xl border border-white/10 bg-slate-950/35 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                />
+              </div>
+            </div>
+          )}
+
+          {pendingToken && (
+            <>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+                Signing in as <span className="font-semibold text-white">{challengeIdentity?.username}</span>
+                {challengeIdentity?.email ? ` (${challengeIdentity.email})` : ""}
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Authenticator Code</label>
+                <div className="relative">
+                  <KeyRound className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                  <input
+                    inputMode="numeric"
+                    value={twoFactorCode}
+                    onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                    placeholder="123456"
+                    className="w-full rounded-2xl border border-white/10 bg-slate-950/35 py-3 pl-11 pr-4 text-sm tracking-[0.35em] text-slate-100 outline-none transition focus:border-primary/60"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingToken("");
+                  setChallengeIdentity(null);
+                  setTwoFactorCode("");
+                  setError(null);
+                }}
+                className="w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/5"
+              >
+                Back To Sign In
+              </button>
+            </>
+          )}
+
+          {error && <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{error}</div>}
+
+          <button
+            type="submit"
+            disabled={isSubmitting}
+            className="w-full rounded-2xl bg-primary px-4 py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+          >
+            {isSubmitting
+              ? pendingToken
+                ? "Verifying..."
+                : mode === "signup"
+                  ? "Creating account..."
+                  : "Signing in..."
+              : pendingToken
+                ? "Verify Code"
+                : mode === "signup"
+                  ? "Create Account"
+                  : "Sign In"}
+          </button>
         </form>
       </div>
     </div>

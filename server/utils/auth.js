@@ -12,6 +12,9 @@ export const toPublicUser = (userDoc) => ({
   username: String(userDoc?.username ?? ""),
   email: String(userDoc?.email ?? ""),
   avatarDataUrl: String(userDoc?.avatarDataUrl ?? ""),
+  githubLinked: Boolean(userDoc?.githubId),
+  githubUsername: String(userDoc?.githubUsername ?? ""),
+  hasPassword: Boolean(userDoc?.passwordHash),
   isAdmin: Boolean(userDoc?.isAdmin),
   twoFactorEnabled: Boolean(userDoc?.twoFactorEnabled),
   projectPermissions: (userDoc?.projectPermissions ?? []).map((permission) => ({

@@ -185,7 +185,7 @@ export const DashboardLayout = () => {
               <UserAvatar username={user?.username ?? "User"} avatarDataUrl={user?.avatarDataUrl} size="sm" />
               <div className="hidden sm:block">
                 <p className="text-sm font-semibold">{user?.username ?? "User"}</p>
-                <p className="text-xs text-muted">{user?.isAdmin ? "Admin" : "Project Member"}</p>
+                <p className="text-xs text-muted">{user?.githubLinked ? "GitHub Connected" : "Workspace Member"}</p>
               </div>
               <button
                 onClick={signOut}

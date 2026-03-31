@@ -5,7 +5,6 @@ import { useNavigate } from "react-router-dom";
 import { runTest } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
-import { useAuth } from "../context/useAuth";
 
 const buildTemplateScript = (url: string, vus: number, duration: string) => `import http from 'k6/http';
 import { sleep, check } from 'k6';
@@ -26,7 +25,6 @@ export default function () {
 export const NewTestPage = () => {
   const navigate = useNavigate();
   const { selectedProject } = useProjects();
-  const { user } = useAuth();
 
   const [name, setName] = useState("Homepage Experience Check");
   const [targetUrl, setTargetUrl] = useState(selectedProject?.baseUrl ?? "https://");
@@ -39,10 +37,7 @@ export const NewTestPage = () => {
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const canRunCurrentProject = Boolean(
-    selectedProject &&
-      (user?.isAdmin || user?.projectPermissions.some((permission) => permission.projectId === selectedProject.id && permission.canRun)),
-  );
+  const canRunCurrentProject = Boolean(selectedProject?.access.canRun);
 
   useEffect(() => {
     if (!selectedProject) {

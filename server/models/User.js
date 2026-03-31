@@ -1,18 +1,5 @@
 import mongoose from "mongoose";
 
-const projectPermissionSchema = new mongoose.Schema(
-  {
-    projectId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Project",
-      required: true,
-    },
-    canView: { type: Boolean, default: true },
-    canRun: { type: Boolean, default: false },
-  },
-  { _id: false },
-);
-
 const userSchema = new mongoose.Schema(
   {
     username: {
@@ -32,10 +19,11 @@ const userSchema = new mongoose.Schema(
       lowercase: true,
       maxlength: 180,
     },
+    githubId: { type: String, default: "", unique: true, sparse: true },
+    githubUsername: { type: String, default: "", trim: true, lowercase: true, maxlength: 80 },
     avatarDataUrl: { type: String, default: "", maxlength: 1_500_000 },
-    passwordHash: { type: String, required: true },
+    passwordHash: { type: String, default: "" },
     isAdmin: { type: Boolean, default: false },
-    projectPermissions: { type: [projectPermissionSchema], default: [] },
     twoFactorEnabled: { type: Boolean, default: false },
     twoFactorSecretEncrypted: { type: String, default: "" },
     pendingTwoFactorSecretEncrypted: { type: String, default: "" },

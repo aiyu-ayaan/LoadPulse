@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   fetchCurrentUser,
-  getAuthToken,
   setAuthToken,
-  setupAdminAccount,
   signIn,
-  verifyTwoFactorSignIn,
+  signUp,
   type AuthUser,
+  verifyTwoFactorSignIn,
 } from "../lib/api";
 import { AuthContext, type AuthContextValue } from "./auth-context";
 
@@ -15,28 +14,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [isLoading, setIsLoading] = useState(true);
 
   const refreshCurrentUser = useCallback(async () => {
-    const token = getAuthToken();
-    if (!token) {
-      setUser(null);
-      return;
-    }
-
-    try {
-      const response = await fetchCurrentUser();
-      setUser(response.user);
-    } catch {
-      setAuthToken(null);
-      setUser(null);
-    }
+    const response = await fetchCurrentUser();
+    setUser(response.user);
   }, []);
 
   useEffect(() => {
-    const boot = async () => {
-      await refreshCurrentUser();
-      setIsLoading(false);
+    const bootstrap = async () => {
+      try {
+        await refreshCurrentUser();
+      } catch {
+        setAuthToken(null);
+        setUser(null);
+      } finally {
+        setIsLoading(false);
+      }
     };
 
-    void boot();
+    void bootstrap();
   }, [refreshCurrentUser]);
 
   const signInWithPassword = useCallback(async (username: string, password: string) => {
@@ -52,17 +46,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return session;
   }, []);
 
+  const signUpWithPassword = useCallback(async (username: string, email: string, password: string) => {
+    const session = await signUp({ username, email, password });
+    setAuthToken(session.token);
+    setUser(session.user);
+  }, []);
+
   const completeTwoFactorSignIn = useCallback(async (pendingToken: string, code: string) => {
     const session = await verifyTwoFactorSignIn({ pendingToken, code });
     setAuthToken(session.token);
     setUser(session.user);
   }, []);
 
-  const initializeAdminAccount = useCallback(async (username: string, email: string, password: string) => {
-    const session = await setupAdminAccount({ username, email, password });
-    setAuthToken(session.token);
-    setUser(session.user);
-  }, []);
+  const hydrateSessionFromToken = useCallback(async (token: string) => {
+    setAuthToken(token);
+    try {
+      await refreshCurrentUser();
+    } catch (error) {
+      setAuthToken(null);
+      setUser(null);
+      throw error;
+    }
+  }, [refreshCurrentUser]);
 
   const replaceCurrentUser = useCallback((nextUser: AuthUser) => {
     setUser(nextUser);
@@ -79,13 +84,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isAuthenticated: Boolean(user),
       isLoading,
       signInWithPassword,
+      signUpWithPassword,
       completeTwoFactorSignIn,
-      initializeAdminAccount,
+      hydrateSessionFromToken,
       refreshCurrentUser,
       replaceCurrentUser,
       signOut,
     }),
-    [user, isLoading, signInWithPassword, completeTwoFactorSignIn, initializeAdminAccount, refreshCurrentUser, replaceCurrentUser, signOut],
+    [user, isLoading, signInWithPassword, signUpWithPassword, completeTwoFactorSignIn, hydrateSessionFromToken, refreshCurrentUser, replaceCurrentUser, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

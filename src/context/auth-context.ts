@@ -6,8 +6,9 @@ export interface AuthContextValue {
   isAuthenticated: boolean;
   isLoading: boolean;
   signInWithPassword: (username: string, password: string) => Promise<SignInResponse>;
+  signUpWithPassword: (username: string, email: string, password: string) => Promise<void>;
   completeTwoFactorSignIn: (pendingToken: string, code: string) => Promise<void>;
-  initializeAdminAccount: (username: string, email: string, password: string) => Promise<void>;
+  hydrateSessionFromToken: (token: string) => Promise<void>;
   refreshCurrentUser: () => Promise<void>;
   replaceCurrentUser: (user: AuthUser) => void;
   signOut: () => void;

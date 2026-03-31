@@ -8,6 +8,14 @@ export interface ProjectStats {
   lastRunName: string | null;
 }
 
+export interface ProjectAccessSummary {
+  canView: boolean;
+  canRun: boolean;
+  canManage: boolean;
+  isOwner: boolean;
+  sharedMemberCount: number;
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -15,6 +23,11 @@ export interface Project {
   description: string;
   createdAt: string;
   updatedAt: string;
+  owner: {
+    username: string;
+    email: string;
+  };
+  access: ProjectAccessSummary;
   stats: ProjectStats;
 }
 
@@ -29,6 +42,9 @@ export interface AuthUser {
   username: string;
   email: string;
   avatarDataUrl: string;
+  githubLinked: boolean;
+  githubUsername: string;
+  hasPassword: boolean;
   isAdmin: boolean;
   twoFactorEnabled: boolean;
   projectPermissions: ProjectPermission[];
@@ -36,6 +52,12 @@ export interface AuthUser {
 
 export interface SignInPayload {
   username: string;
+  password: string;
+}
+
+export interface SignUpPayload {
+  username: string;
+  email: string;
   password: string;
 }
 
@@ -57,22 +79,15 @@ export interface TwoFactorChallengeResponse {
 
 export type SignInResponse = AuthSessionResponse | TwoFactorChallengeResponse;
 
+export interface AuthOptionsResponse {
+  localEnabled: boolean;
+  githubEnabled: boolean;
+  hasUsers: boolean;
+}
+
 export interface SetupStatusResponse {
   needsSetup: boolean;
-}
-
-export interface CreateUserPayload {
-  username: string;
-  email: string;
-  password: string;
-  isAdmin: boolean;
-  projectPermissions: ProjectPermission[];
-}
-
-export interface SetupAdminPayload {
-  username: string;
-  email: string;
-  password: string;
+  githubEnabled: boolean;
 }
 
 export interface UpdateProfilePayload {
@@ -84,6 +99,33 @@ export interface UpdateProfilePayload {
 export interface TwoFactorSetupResponse {
   qrCodeDataUrl: string;
   manualKey: string;
+}
+
+export interface UserSearchResult {
+  id: string;
+  username: string;
+  email: string;
+  avatarDataUrl: string;
+  githubLinked: boolean;
+}
+
+export interface ProjectAccessMember {
+  key: string;
+  email: string;
+  username: string;
+  avatarDataUrl: string;
+  githubLinked: boolean;
+  hasAccount: boolean;
+  canView: boolean;
+  canRun: boolean;
+  isOwner: boolean;
+  joinedVia: "github" | "local" | "pending";
+}
+
+export interface ProjectAccessResponse {
+  projectId: string;
+  owner: ProjectAccessMember;
+  members: ProjectAccessMember[];
 }
 
 export interface DashboardKpis {
@@ -221,6 +263,8 @@ export const setAuthToken = (token: string | null) => {
   }
 };
 
+export const getGitHubAuthStartUrl = () => `${baseUrl}/api/auth/github/start`;
+
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const headers = new Headers(init?.headers ?? {});
   const hasBody = init?.body !== undefined && init?.body !== null;
@@ -256,19 +300,21 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   return (await response.json()) as T;
 };
 
+export const fetchAuthOptions = () => request<AuthOptionsResponse>("/api/auth/options");
+
 export const signIn = (payload: SignInPayload) =>
   request<SignInResponse>("/api/auth/signin", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
-export const fetchSetupStatus = () => request<SetupStatusResponse>("/api/auth/setup-status");
-
-export const setupAdminAccount = (payload: SetupAdminPayload) =>
-  request<AuthSessionResponse>("/api/auth/setup-admin", {
+export const signUp = (payload: SignUpPayload) =>
+  request<AuthSessionResponse>("/api/auth/signup", {
     method: "POST",
     body: JSON.stringify(payload),
   });
+
+export const fetchSetupStatus = () => request<SetupStatusResponse>("/api/auth/setup-status");
 
 export const fetchCurrentUser = () => request<{ user: AuthUser }>("/api/auth/me");
 
@@ -320,18 +366,21 @@ export const deleteProject = (id: string) =>
     method: "DELETE",
   });
 
-export const fetchUsers = () => request<{ data: AuthUser[] }>("/api/users");
+export const searchUsers = (query: string) =>
+  request<{ data: UserSearchResult[] }>(`/api/users/search?q=${encodeURIComponent(query)}`);
 
-export const createUser = (payload: CreateUserPayload) =>
-  request<{ data: AuthUser }>("/api/users", {
+export const fetchProjectAccess = (projectId: string) =>
+  request<{ data: ProjectAccessResponse }>(`/api/projects/${encodeURIComponent(projectId)}/access`);
+
+export const shareProjectAccess = (projectId: string, payload: { email: string; canView: boolean; canRun: boolean }) =>
+  request<{ data: ProjectAccessMember }>(`/api/projects/${encodeURIComponent(projectId)}/access`, {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
-export const updateUserAccess = (id: string, payload: { isAdmin: boolean; projectPermissions: ProjectPermission[] }) =>
-  request<{ data: AuthUser }>(`/api/users/${encodeURIComponent(id)}/access`, {
-    method: "PATCH",
-    body: JSON.stringify(payload),
+export const removeProjectAccess = (projectId: string, email: string) =>
+  request<{ success: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/access?email=${encodeURIComponent(email)}`, {
+    method: "DELETE",
   });
 
 export const fetchDashboardOverview = (projectId: string) =>

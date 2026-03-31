@@ -1,334 +1,387 @@
-import { useCallback, useEffect, useState } from "react";
-import { Camera, KeyRound, Mail, RefreshCcw, ShieldCheck, Smartphone, UserCog, UserPlus, Users } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
+import {
+  Camera,
+  Mail,
+  RefreshCcw,
+  Search,
+  ShieldCheck,
+  Smartphone,
+  Trash2,
+  UserCog,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import {
   changePassword,
-  createUser,
   disableTwoFactor,
   enableTwoFactor,
-  fetchUsers,
+  fetchProjectAccess,
+  removeProjectAccess,
+  searchUsers,
   setupTwoFactor,
+  shareProjectAccess,
   updateProfile,
-  updateUserAccess,
-  type AuthUser,
-  type ProjectPermission,
+  type ProjectAccessMember,
+  type UserSearchResult,
 } from "../lib/api";
 import { UserAvatar } from "../components/UserAvatar";
 import { useAuth } from "../context/useAuth";
 import { useProjects } from "../context/useProjects";
 
+const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+
 type TabKey = "profile" | "security" | "access";
-type PermissionState = Record<string, { canView: boolean; canRun: boolean }>;
-type TwoFactorSetupState = {
-  qrCodeDataUrl: string;
-  manualKey: string;
+
+type MemberRowProps = {
+  member: ProjectAccessMember;
+  busy: boolean;
+  onSave: (canView: boolean, canRun: boolean) => void;
+  onRemove: () => void;
 };
 
-const createPermissionState = (projectIds: string[]): PermissionState =>
-  projectIds.reduce<PermissionState>((acc, projectId) => {
-    acc[projectId] = { canView: false, canRun: false };
-    return acc;
-  }, {});
+const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) => {
+  const [canView, setCanView] = useState(member.canView);
+  const [canRun, setCanRun] = useState(member.canRun);
 
-const permissionStateFromUser = (member: AuthUser, projectIds: string[]) => {
-  const state = createPermissionState(projectIds);
-  for (const permission of member.projectPermissions) {
-    if (!state[permission.projectId]) {
-      continue;
-    }
-    state[permission.projectId] = {
-      canView: permission.canView,
-      canRun: permission.canRun,
-    };
-  }
-  return state;
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div className="flex items-center gap-3">
+        <UserAvatar username={member.username || member.email} avatarDataUrl={member.avatarDataUrl} size="sm" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold text-white">{member.username || member.email}</p>
+          <p className="truncate text-xs text-slate-400">{member.email}</p>
+          <p className="mt-1 text-[11px] uppercase tracking-[0.16em] text-slate-500">
+            {member.joinedVia === "pending"
+              ? "Pending account"
+              : member.joinedVia === "github"
+                ? "GitHub account"
+                : "Local account"}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-[1fr,auto] md:items-center">
+        <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-300">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={canView}
+              onChange={(event) => setCanView(event.target.checked || canRun)}
+              className="h-4 w-4"
+            />
+            View
+          </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={canRun}
+              onChange={(event) => {
+                setCanRun(event.target.checked);
+                if (event.target.checked) {
+                  setCanView(true);
+                }
+              }}
+              className="h-4 w-4"
+            />
+            Run
+          </label>
+        </div>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={busy || (!canView && !canRun)}
+            onClick={() => onSave(canView || canRun, canRun)}
+            className="rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+          >
+            {busy ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onRemove}
+            className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-xs font-semibold text-rose-200 transition hover:bg-rose-500/20 disabled:opacity-60"
+          >
+            <span className="inline-flex items-center gap-2">
+              <Trash2 className="h-3.5 w-3.5" /> Remove
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
-
-const hasAnyPermission = (state: PermissionState) =>
-  Object.values(state).some((permission) => permission.canView || permission.canRun);
-
-const toPermissionArray = (state: PermissionState): ProjectPermission[] =>
-  Object.entries(state)
-    .filter(([, permission]) => permission.canView || permission.canRun)
-    .map(([projectId, permission]) => ({
-      projectId,
-      canView: permission.canView || permission.canRun,
-      canRun: permission.canRun,
-    }));
-
-const fileToDataUrl = (file: File) =>
-  new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(new Error("Unable to read selected image."));
-    reader.readAsDataURL(file);
-  });
 
 export const SettingsPage = () => {
   const { user, replaceCurrentUser } = useAuth();
-  const { projects } = useProjects();
+  const { selectedProject, refreshProjects } = useProjects();
+
   const [activeTab, setActiveTab] = useState<TabKey>("profile");
 
-  const [profileUsername, setProfileUsername] = useState("");
-  const [profileEmail, setProfileEmail] = useState("");
-  const [profileAvatarDataUrl, setProfileAvatarDataUrl] = useState("");
   const [profileMessage, setProfileMessage] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
-  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [username, setUsername] = useState(user?.username ?? "");
+  const [email, setEmail] = useState(user?.email ?? "");
+  const [avatarDataUrl, setAvatarDataUrl] = useState(user?.avatarDataUrl ?? "");
 
+  const [passwordMessage, setPasswordMessage] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
-  const [securityError, setSecurityError] = useState<string | null>(null);
-  const [securityMessage, setSecurityMessage] = useState<string | null>(null);
-  const [isChangingPassword, setIsChangingPassword] = useState(false);
-  const [twoFactorSetupState, setTwoFactorSetupState] = useState<TwoFactorSetupState | null>(null);
-  const [twoFactorCode, setTwoFactorCode] = useState("");
-  const [isGeneratingTwoFactor, setIsGeneratingTwoFactor] = useState(false);
-  const [isTogglingTwoFactor, setIsTogglingTwoFactor] = useState(false);
 
-  const [users, setUsers] = useState<AuthUser[]>([]);
-  const [accessDrafts, setAccessDrafts] = useState<Record<string, { isAdmin: boolean; permissions: PermissionState }>>({});
+  const [twoFactorError, setTwoFactorError] = useState<string | null>(null);
+  const [twoFactorMessage, setTwoFactorMessage] = useState<string | null>(null);
+  const [twoFactorBusy, setTwoFactorBusy] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [pendingSetup, setPendingSetup] = useState<{ qrCodeDataUrl: string; manualKey: string } | null>(null);
+
   const [accessError, setAccessError] = useState<string | null>(null);
   const [accessMessage, setAccessMessage] = useState<string | null>(null);
-  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [savingAccessUserId, setSavingAccessUserId] = useState<string | null>(null);
-  const [creatingUser, setCreatingUser] = useState(false);
-
-  const [newUsername, setNewUsername] = useState("");
-  const [newEmail, setNewEmail] = useState("");
-  const [newUserPassword, setNewUserPassword] = useState("");
-  const [newIsAdmin, setNewIsAdmin] = useState(false);
-  const [newPermissions, setNewPermissions] = useState<PermissionState>(() => createPermissionState(projects.map((project) => project.id)));
+  const [accessLoading, setAccessLoading] = useState(false);
+  const [owner, setOwner] = useState<ProjectAccessMember | null>(null);
+  const [members, setMembers] = useState<ProjectAccessMember[]>([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [inviteCanView, setInviteCanView] = useState(true);
+  const [inviteCanRun, setInviteCanRun] = useState(false);
+  const [sharingEmail, setSharingEmail] = useState<string | null>(null);
+  const [memberActionEmail, setMemberActionEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) {
       return;
     }
-    setProfileUsername(user.username);
-    setProfileEmail(user.email);
-    setProfileAvatarDataUrl(user.avatarDataUrl ?? "");
+    setUsername(user.username);
+    setEmail(user.email);
+    setAvatarDataUrl(user.avatarDataUrl);
   }, [user]);
 
-  useEffect(() => {
-    setNewPermissions((previous) => {
-      const next = createPermissionState(projects.map((project) => project.id));
-      for (const project of projects) {
-        if (previous[project.id]) {
-          next[project.id] = previous[project.id];
-        }
-      }
-      return next;
-    });
-  }, [projects]);
-
-  const loadUsers = useCallback(async () => {
-    if (!user?.isAdmin) {
+  const loadProjectAccess = useCallback(async () => {
+    if (!selectedProject?.access.canManage) {
+      setOwner(null);
+      setMembers([]);
       return;
     }
-    setIsLoadingUsers(true);
+
+    setAccessLoading(true);
     try {
-      const response = await fetchUsers();
-      setUsers(response.data);
-      setAccessDrafts(
-        response.data.reduce<Record<string, { isAdmin: boolean; permissions: PermissionState }>>((acc, member) => {
-          acc[member.id] = {
-            isAdmin: member.isAdmin,
-            permissions: permissionStateFromUser(member, projects.map((project) => project.id)),
-          };
-          return acc;
-        }, {}),
-      );
+      const response = await fetchProjectAccess(selectedProject.id);
+      setOwner(response.data.owner);
+      setMembers(response.data.members);
       setAccessError(null);
     } catch (requestError) {
-      setAccessError(requestError instanceof Error ? requestError.message : "Unable to load users.");
+      setAccessError(requestError instanceof Error ? requestError.message : "Unable to load project access.");
     } finally {
-      setIsLoadingUsers(false);
+      setAccessLoading(false);
     }
-  }, [projects, user?.isAdmin]);
+  }, [selectedProject]);
 
   useEffect(() => {
-    if (user?.isAdmin) {
-      void loadUsers();
+    if (activeTab === "access") {
+      void loadProjectAccess();
     }
-  }, [loadUsers, user?.isAdmin]);
+  }, [activeTab, loadProjectAccess]);
 
-  const updatePermissionState = (
-    state: PermissionState,
-    projectId: string,
-    field: "canView" | "canRun",
-    checked: boolean,
-  ): PermissionState => {
-    const current = state[projectId] ?? { canView: false, canRun: false };
-    if (field === "canRun") {
-      return {
-        ...state,
-        [projectId]: {
-          canRun: checked,
-          canView: checked ? true : current.canView,
-        },
-      };
+  useEffect(() => {
+    if (activeTab !== "access") {
+      return;
+    }
+    if (!selectedProject?.access.canManage || searchTerm.trim().length < 2) {
+      setSearchResults([]);
+      setSearchLoading(false);
+      return;
     }
 
-    return {
-      ...state,
-      [projectId]: {
-        canView: checked,
-        canRun: checked ? current.canRun : false,
-      },
-    };
-  };
+    const timeout = window.setTimeout(() => {
+      setSearchLoading(true);
+      void searchUsers(searchTerm.trim())
+        .then((response) => setSearchResults(response.data))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearchLoading(false));
+    }, 250);
 
-  const handleProfileSave = async () => {
-    setProfileError(null);
-    setProfileMessage(null);
-    setIsSavingProfile(true);
+    return () => window.clearTimeout(timeout);
+  }, [activeTab, searchTerm, selectedProject]);
 
-    try {
-      const response = await updateProfile({
-        username: profileUsername,
-        email: profileEmail,
-        avatarDataUrl: profileAvatarDataUrl,
-      });
-      replaceCurrentUser(response.user);
-      setProfileMessage("Profile updated successfully.");
-    } catch (requestError) {
-      setProfileError(requestError instanceof Error ? requestError.message : "Unable to save profile.");
-    } finally {
-      setIsSavingProfile(false);
-    }
-  };
+  const inviteEmail = useMemo(() => {
+    const trimmed = searchTerm.trim().toLowerCase();
+    return isEmail(trimmed) ? trimmed : "";
+  }, [searchTerm]);
 
-  const handleAvatarPicked = async (file: File | null) => {
+  const handleAvatarChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
     if (!file) {
       return;
     }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setAvatarDataUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+  const handleSaveProfile = async () => {
+    setProfileSaving(true);
+    setProfileError(null);
+    setProfileMessage(null);
+
     try {
-      const dataUrl = await fileToDataUrl(file);
-      setProfileAvatarDataUrl(dataUrl);
+      const response = await updateProfile({ username, email, avatarDataUrl });
+      replaceCurrentUser(response.user);
+      await refreshProjects();
+      setProfileMessage("Profile updated successfully.");
     } catch (requestError) {
-      setProfileError(requestError instanceof Error ? requestError.message : "Unable to load image.");
+      setProfileError(requestError instanceof Error ? requestError.message : "Unable to update profile.");
+    } finally {
+      setProfileSaving(false);
     }
   };
 
-  const handleChangePassword = async () => {
-    setSecurityError(null);
-    setSecurityMessage(null);
-    setIsChangingPassword(true);
+  const handlePasswordChange = async () => {
+    setPasswordSaving(true);
+    setPasswordError(null);
+    setPasswordMessage(null);
 
     try {
-      const response = await changePassword({
-        currentPassword,
-        newPassword,
-      });
+      const response = await changePassword({ currentPassword, newPassword });
       setCurrentPassword("");
       setNewPassword("");
-      setSecurityMessage(response.message);
+      setPasswordMessage(response.message);
     } catch (requestError) {
-      setSecurityError(requestError instanceof Error ? requestError.message : "Unable to change password.");
+      setPasswordError(requestError instanceof Error ? requestError.message : "Unable to update password.");
     } finally {
-      setIsChangingPassword(false);
+      setPasswordSaving(false);
     }
   };
 
-  const handleStartTwoFactor = async () => {
-    setSecurityError(null);
-    setSecurityMessage(null);
-    setIsGeneratingTwoFactor(true);
+  const handleStartTwoFactorSetup = async () => {
+    setTwoFactorBusy(true);
+    setTwoFactorError(null);
+    setTwoFactorMessage(null);
 
     try {
-      const response = await setupTwoFactor();
-      setTwoFactorSetupState(response);
-      setTwoFactorCode("");
+      setPendingSetup(await setupTwoFactor());
     } catch (requestError) {
-      setSecurityError(requestError instanceof Error ? requestError.message : "Unable to start 2-step setup.");
+      setTwoFactorError(requestError instanceof Error ? requestError.message : "Unable to start 2-step setup.");
     } finally {
-      setIsGeneratingTwoFactor(false);
+      setTwoFactorBusy(false);
     }
   };
 
   const handleEnableTwoFactor = async () => {
-    setSecurityError(null);
-    setSecurityMessage(null);
-    setIsTogglingTwoFactor(true);
+    setTwoFactorBusy(true);
+    setTwoFactorError(null);
+    setTwoFactorMessage(null);
 
     try {
       const response = await enableTwoFactor(twoFactorCode);
       replaceCurrentUser(response.user);
-      setTwoFactorSetupState(null);
+      setPendingSetup(null);
       setTwoFactorCode("");
-      setSecurityMessage(response.message);
+      setTwoFactorMessage(response.message);
     } catch (requestError) {
-      setSecurityError(requestError instanceof Error ? requestError.message : "Unable to enable 2-step authentication.");
+      setTwoFactorError(
+        requestError instanceof Error ? requestError.message : "Unable to enable 2-step authentication.",
+      );
     } finally {
-      setIsTogglingTwoFactor(false);
+      setTwoFactorBusy(false);
     }
   };
 
   const handleDisableTwoFactor = async () => {
-    setSecurityError(null);
-    setSecurityMessage(null);
-    setIsTogglingTwoFactor(true);
+    setTwoFactorBusy(true);
+    setTwoFactorError(null);
+    setTwoFactorMessage(null);
 
     try {
       const response = await disableTwoFactor(twoFactorCode);
       replaceCurrentUser(response.user);
+      setPendingSetup(null);
       setTwoFactorCode("");
-      setTwoFactorSetupState(null);
-      setSecurityMessage(response.message);
+      setTwoFactorMessage(response.message);
     } catch (requestError) {
-      setSecurityError(requestError instanceof Error ? requestError.message : "Unable to disable 2-step authentication.");
+      setTwoFactorError(
+        requestError instanceof Error ? requestError.message : "Unable to disable 2-step authentication.",
+      );
     } finally {
-      setIsTogglingTwoFactor(false);
+      setTwoFactorBusy(false);
     }
   };
 
-  const handleCreateUser = async () => {
-    setAccessError(null);
-    setAccessMessage(null);
-    setCreatingUser(true);
-
-    try {
-      await createUser({
-        username: newUsername,
-        email: newEmail,
-        password: newUserPassword,
-        isAdmin: newIsAdmin,
-        projectPermissions: newIsAdmin ? [] : toPermissionArray(newPermissions),
-      });
-      setNewUsername("");
-      setNewEmail("");
-      setNewUserPassword("");
-      setNewIsAdmin(false);
-      setNewPermissions(createPermissionState(projects.map((project) => project.id)));
-      setAccessMessage("User created successfully.");
-      await loadUsers();
-    } catch (requestError) {
-      setAccessError(requestError instanceof Error ? requestError.message : "Unable to create user.");
-    } finally {
-      setCreatingUser(false);
-    }
-  };
-
-  const handleSaveUserAccess = async (memberId: string) => {
-    const draft = accessDrafts[memberId];
-    if (!draft) {
+  const handleShare = async (targetEmail: string) => {
+    if (!selectedProject) {
       return;
     }
 
+    setSharingEmail(targetEmail);
     setAccessError(null);
     setAccessMessage(null);
-    setSavingAccessUserId(memberId);
 
     try {
-      await updateUserAccess(memberId, {
-        isAdmin: draft.isAdmin,
-        projectPermissions: draft.isAdmin ? [] : toPermissionArray(draft.permissions),
+      await shareProjectAccess(selectedProject.id, {
+        email: targetEmail,
+        canView: inviteCanView || inviteCanRun,
+        canRun: inviteCanRun,
       });
-      setAccessMessage("User access updated.");
-      await loadUsers();
+      setSearchTerm("");
+      setSearchResults([]);
+      setInviteCanView(true);
+      setInviteCanRun(false);
+      setAccessMessage(`Access updated for ${targetEmail}.`);
+      await Promise.all([loadProjectAccess(), refreshProjects()]);
     } catch (requestError) {
-      setAccessError(requestError instanceof Error ? requestError.message : "Unable to update access.");
+      setAccessError(requestError instanceof Error ? requestError.message : "Unable to share the project.");
     } finally {
-      setSavingAccessUserId(null);
+      setSharingEmail(null);
+    }
+  };
+
+  const handleUpdateMember = async (member: ProjectAccessMember, canView: boolean, canRun: boolean) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    setMemberActionEmail(member.email);
+    setAccessError(null);
+    setAccessMessage(null);
+
+    try {
+      await shareProjectAccess(selectedProject.id, {
+        email: member.email,
+        canView: canView || canRun,
+        canRun,
+      });
+      setAccessMessage(`Access updated for ${member.email}.`);
+      await Promise.all([loadProjectAccess(), refreshProjects()]);
+    } catch (requestError) {
+      setAccessError(requestError instanceof Error ? requestError.message : "Unable to update member access.");
+    } finally {
+      setMemberActionEmail(null);
+    }
+  };
+
+  const handleRemoveMember = async (member: ProjectAccessMember) => {
+    if (!selectedProject) {
+      return;
+    }
+
+    setMemberActionEmail(member.email);
+    setAccessError(null);
+    setAccessMessage(null);
+
+    try {
+      await removeProjectAccess(selectedProject.id, member.email);
+      setAccessMessage(`${member.email} was removed from this project.`);
+      await Promise.all([loadProjectAccess(), refreshProjects()]);
+    } catch (requestError) {
+      setAccessError(requestError instanceof Error ? requestError.message : "Unable to remove project access.");
+    } finally {
+      setMemberActionEmail(null);
     }
   };
 
@@ -339,475 +392,300 @@ export const SettingsPage = () => {
   const tabs = [
     { key: "profile" as const, label: "User Settings", icon: UserCog },
     { key: "security" as const, label: "Security", icon: ShieldCheck },
-    ...(user.isAdmin ? [{ key: "access" as const, label: "Access Management", icon: Users }] : []),
+    { key: "access" as const, label: "Access Management", icon: Users },
   ];
 
   return (
     <div className="mx-auto max-w-7xl space-y-8 pb-12">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
-        <p className="text-sm text-slate-400">Manage your profile, security, and team access from one place.</p>
+        <p className="text-sm text-slate-400 md:text-base">
+          Manage your profile, secure your account, and share the currently selected project with the right people.
+        </p>
       </div>
 
-      <section className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        <aside className="glass-panel rounded-3xl border border-white/10 p-4 lg:col-span-4 lg:sticky lg:top-24 lg:self-start xl:col-span-3">
-          <div className="mb-5 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <UserAvatar username={user.username} avatarDataUrl={user.avatarDataUrl} size="md" />
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[300px,1fr]">
+        <aside className="glass-panel rounded-3xl border border-white/10 p-6">
+          <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <UserAvatar username={user.username} avatarDataUrl={user.avatarDataUrl} size="lg" />
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">{user.username}</p>
-              <p className="truncate text-xs text-slate-400">{user.email}</p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-primary">{user.isAdmin ? "Admin" : "Member"}</p>
+              <p className="truncate text-base font-semibold text-white">{user.username}</p>
+              <p className="truncate text-sm text-slate-400">{user.email}</p>
+              <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-primary">
+                {user.githubLinked ? "GitHub linked" : "Password account"}
+              </p>
             </div>
           </div>
 
-          <div className="space-y-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${activeTab === tab.key ? "bg-primary/15 text-primary border border-primary/25" : "text-slate-400 hover:bg-white/[0.06] hover:text-white"
+          <div className="mt-6 space-y-2">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${
+                    activeTab === tab.key
+                      ? "border border-primary/30 bg-primary/15 text-white"
+                      : "border border-transparent text-slate-300 hover:bg-white/[0.05]"
                   }`}
-              >
-                <tab.icon className="h-4 w-4" />
-                {tab.label}
-              </button>
-            ))}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="text-sm font-medium">{tab.label}</span>
+                </button>
+              );
+            })}
           </div>
         </aside>
 
-        <div className="min-w-0 space-y-6 lg:col-span-8 xl:col-span-9">
+        <div className="space-y-6">
           {activeTab === "profile" && (
             <section className="glass-panel rounded-3xl border border-white/10 p-6">
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-white">User Settings</h2>
-                <p className="mt-1 text-sm text-slate-400">Update your username, email, and profile photo.</p>
+                <p className="mt-1 text-sm text-slate-400">Update how your account appears across projects and reports.</p>
               </div>
 
               {(profileError || profileMessage) && (
                 <div
-                  className={`mb-5 rounded-2xl px-4 py-3 text-sm ${profileError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                    }`}
+                  className={`mb-4 rounded-2xl px-4 py-3 text-sm ${
+                    profileError
+                      ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                      : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                  }`}
                 >
-                  {profileError ?? profileMessage}
+                  {profileError || profileMessage}
                 </div>
               )}
 
-              <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px,1fr]">
-                <div className="space-y-4">
-                  <div className="flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                    <UserAvatar username={profileUsername || user.username} avatarDataUrl={profileAvatarDataUrl} size="lg" />
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-slate-200 transition hover:bg-white/[0.09]">
-                      <Camera className="h-4 w-4" />
-                      Upload Photo
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg,image/webp,image/gif"
-                        className="hidden"
-                        onChange={(event) => void handleAvatarPicked(event.target.files?.[0] ?? null)}
-                      />
-                    </label>
-                    <button
-                      onClick={() => setProfileAvatarDataUrl("")}
-                      className="text-xs text-slate-400 transition hover:text-white"
-                    >
-                      Remove photo
-                    </button>
+              <div className="grid gap-6 lg:grid-cols-[220px,1fr]">
+                <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="flex justify-center">
+                    <UserAvatar username={username || user.username} avatarDataUrl={avatarDataUrl} size="lg" />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-                  <label className="block space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Username</span>
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/20 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:bg-white/[0.04]">
+                    <Camera className="h-4 w-4" />
+                    Upload Photo
                     <input
-                      value={profileUsername}
-                      onChange={(event) => setProfileUsername(event.target.value.toLowerCase())}
-                      className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="hidden"
+                      onChange={handleAvatarChange}
                     />
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => setAvatarDataUrl("")}
+                    className="w-full rounded-xl border border-white/10 px-4 py-2.5 text-sm text-slate-300 transition hover:bg-white/[0.05]"
+                  >
+                    Use Initials Instead
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Username</label>
+                    <input
+                      value={username}
+                      onChange={(event) => setUsername(event.target.value.toLowerCase())}
+                      className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                    />
+                  </div>
 
-                  <label className="block space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">Email</span>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Email</label>
                     <div className="relative">
-                      <Mail className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" />
+                      <Mail className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                       <input
-                        type="email"
-                        value={profileEmail}
-                        onChange={(event) => setProfileEmail(event.target.value)}
-                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none focus:border-primary/60"
+                        value={email}
+                        onChange={(event) => setEmail(event.target.value.toLowerCase())}
+                        className="w-full rounded-2xl border border-white/10 bg-black/20 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
                       />
                     </div>
-                  </label>
-
-                  <div className="md:col-span-2">
-                    <button
-                      onClick={() => void handleProfileSave()}
-                      disabled={isSavingProfile}
-                      className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
-                    >
-                      {isSavingProfile ? "Saving profile..." : "Save Profile"}
-                    </button>
                   </div>
+
+                  <button
+                    type="button"
+                    disabled={profileSaving}
+                    onClick={() => void handleSaveProfile()}
+                    className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+                  >
+                    {profileSaving ? "Saving..." : "Save Profile"}
+                  </button>
                 </div>
               </div>
             </section>
           )}
+
           {activeTab === "security" && (
-            <section className="space-y-6">
-              <div className="glass-panel rounded-3xl border border-white/10 p-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-white">Security</h2>
-                  <p className="mt-1 text-sm text-slate-400">Change your password and protect login with an authenticator app.</p>
-                </div>
+            <section className="glass-panel rounded-3xl border border-white/10 p-6">
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-white">Sign-in Security</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  Manage your password, GitHub login, and authenticator protection.
+                </p>
+              </div>
 
-                {(securityError || securityMessage) && (
-                  <div
-                    className={`mb-5 rounded-2xl px-4 py-3 text-sm ${securityError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                      }`}
-                  >
-                    {securityError ?? securityMessage}
-                  </div>
-                )}
+              <div className="grid gap-6 lg:grid-cols-2">
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                  <h3 className="text-base font-semibold text-white">Password</h3>
+                  <p className="mt-1 text-sm text-slate-400">
+                    {user.hasPassword
+                      ? "Change the password you use for local sign-in."
+                      : "This account currently signs in through GitHub. Local password sign-in is not enabled yet."}
+                  </p>
 
-                <div className="grid grid-cols-1 gap-8 xl:grid-cols-2">
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                    <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
-                      <KeyRound className="h-4 w-4 text-primary" />
-                      Change Password
-                    </h3>
-                    <div className="space-y-4">
-                      <input
-                        type="password"
-                        value={currentPassword}
-                        onChange={(event) => setCurrentPassword(event.target.value)}
-                        placeholder="Current password"
-                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
-                      />
-                      <input
-                        type="password"
-                        value={newPassword}
-                        onChange={(event) => setNewPassword(event.target.value)}
-                        placeholder="New password"
-                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
-                      />
-                      <button
-                        onClick={() => void handleChangePassword()}
-                        disabled={isChangingPassword}
-                        className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
-                      >
-                        {isChangingPassword ? "Updating password..." : "Update Password"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                    <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
-                      <Smartphone className="h-4 w-4 text-secondary-teal" />
-                      Two-Step Authentication
-                    </h3>
-                    <div className="space-y-4">
-                      <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
-                        {user.twoFactorEnabled
-                          ? "2-step authentication is active. You will be asked for an authenticator code during login."
-                          : "Add an authenticator app for an extra verification screen during login."}
+                  {user.hasPassword ? (
+                    <div className="mt-5 space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                          Current Password
+                        </label>
+                        <input
+                          type="password"
+                          value={currentPassword}
+                          onChange={(event) => setCurrentPassword(event.target.value)}
+                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                        />
                       </div>
 
-                      {!user.twoFactorEnabled && !twoFactorSetupState && (
-                        <button
-                          onClick={() => void handleStartTwoFactor()}
-                          disabled={isGeneratingTwoFactor}
-                          className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                          New Password
+                        </label>
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={(event) => setNewPassword(event.target.value)}
+                          className="w-full rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                        />
+                      </div>
+
+                      {(passwordError || passwordMessage) && (
+                        <div
+                          className={`rounded-2xl px-4 py-3 text-sm ${
+                            passwordError
+                              ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                              : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                          }`}
                         >
-                          {isGeneratingTwoFactor ? "Generating QR..." : "Set Up Authenticator"}
+                          {passwordError || passwordMessage}
+                        </div>
+                      )}
+
+                      <button
+                        type="button"
+                        disabled={passwordSaving}
+                        onClick={() => void handlePasswordChange()}
+                        className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+                      >
+                        {passwordSaving ? "Updating..." : "Update Password"}
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-slate-300">
+                      GitHub login is linked{user.githubUsername ? ` as @${user.githubUsername}` : ""}.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-base font-semibold text-white">2-Step Authentication</h3>
+                      <p className="mt-1 text-sm text-slate-400">
+                        Protect sign-in with a code from any authenticator app.
+                      </p>
+                    </div>
+                    <span
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
+                        user.twoFactorEnabled ? "bg-emerald-500/15 text-emerald-200" : "bg-white/10 text-slate-300"
+                      }`}
+                    >
+                      {user.twoFactorEnabled ? "Enabled" : "Off"}
+                    </span>
+                  </div>
+
+                  {(twoFactorError || twoFactorMessage) && (
+                    <div
+                      className={`mt-4 rounded-2xl px-4 py-3 text-sm ${
+                        twoFactorError
+                          ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                          : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                      }`}
+                    >
+                      {twoFactorError || twoFactorMessage}
+                    </div>
+                  )}
+
+                  <div className="mt-5 space-y-4">
+                    {!pendingSetup && !user.twoFactorEnabled && (
+                      <button
+                        type="button"
+                        disabled={twoFactorBusy}
+                        onClick={() => void handleStartTwoFactorSetup()}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+                      >
+                        <Smartphone className="h-4 w-4" />
+                        {twoFactorBusy ? "Preparing..." : "Set Up Authenticator"}
+                      </button>
+                    )}
+
+                    {pendingSetup && (
+                      <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <img
+                          src={pendingSetup.qrCodeDataUrl}
+                          alt="Authenticator QR code"
+                          className="mx-auto h-48 w-48 rounded-2xl bg-white p-3"
+                        />
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            Manual Key
+                          </p>
+                          <p className="mt-2 break-all rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 font-mono text-sm text-slate-200">
+                            {pendingSetup.manualKey}
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                            Verification Code
+                          </label>
+                          <input
+                            inputMode="numeric"
+                            value={twoFactorCode}
+                            onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                            className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm tracking-[0.28em] text-slate-100 outline-none transition focus:border-primary/60"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          disabled={twoFactorBusy}
+                          onClick={() => void handleEnableTwoFactor()}
+                          className="rounded-2xl bg-primary px-5 py-3 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+                        >
+                          {twoFactorBusy ? "Verifying..." : "Enable 2-Step Authentication"}
                         </button>
-                      )}
+                      </div>
+                    )}
 
-                      {!user.twoFactorEnabled && twoFactorSetupState && (
-                        <div className="space-y-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-                          <img src={twoFactorSetupState.qrCodeDataUrl} alt="Authenticator QR code" className="h-44 w-44 rounded-2xl bg-white p-2" />
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Manual Key</p>
-                            <p className="mt-2 break-all rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 font-mono text-sm text-slate-200">
-                              {twoFactorSetupState.manualKey}
-                            </p>
-                          </div>
-                          <input
-                            value={twoFactorCode}
-                            onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, "").slice(0, 6))}
-                            placeholder="Enter 6-digit code"
-                            inputMode="numeric"
-                            className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
-                          />
-                          <div className="flex flex-wrap gap-3">
-                            <button
-                              onClick={() => void handleEnableTwoFactor()}
-                              disabled={isTogglingTwoFactor}
-                              className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
-                            >
-                              {isTogglingTwoFactor ? "Verifying..." : "Enable 2-Step Authentication"}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setTwoFactorSetupState(null);
-                                setTwoFactorCode("");
-                              }}
-                              className="rounded-xl border border-white/10 bg-white/[0.04] px-5 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-white/[0.08]"
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      )}
-
-                      {user.twoFactorEnabled && (
-                        <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
-                          <input
-                            value={twoFactorCode}
-                            onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D+/g, "").slice(0, 6))}
-                            placeholder="Enter current authenticator code"
-                            inputMode="numeric"
-                            className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
-                          />
-                          <button
-                            onClick={() => void handleDisableTwoFactor()}
-                            disabled={isTogglingTwoFactor}
-                            className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-5 py-2.5 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20 disabled:opacity-60"
-                          >
-                            {isTogglingTwoFactor ? "Disabling..." : "Disable 2-Step Authentication"}
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
-          {activeTab === "access" && user.isAdmin && (
-            <section className="space-y-6">
-              {(accessError || accessMessage) && (
-                <div
-                  className={`rounded-2xl px-4 py-3 text-sm ${accessError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                    }`}
-                >
-                  {accessError ?? accessMessage}
-                </div>
-              )}
-
-              <div className="glass-panel rounded-3xl border border-white/10 p-6">
-                <div className="mb-6">
-                  <h2 className="text-xl font-bold text-white">Access Management</h2>
-                  <p className="mt-1 text-sm text-slate-400">Create users, share projects, and update permissions later from here.</p>
-                </div>
-
-                <div className="grid grid-cols-1 gap-8 xl:grid-cols-[360px,1fr]">
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                    <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
-                      <UserPlus className="h-4 w-4 text-primary" />
-                      Add User
-                    </h3>
-
-                    <div className="space-y-4">
-                      <input
-                        value={newUsername}
-                        onChange={(event) => setNewUsername(event.target.value.toLowerCase())}
-                        placeholder="username"
-                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
-                      />
-                      <input
-                        type="email"
-                        value={newEmail}
-                        onChange={(event) => setNewEmail(event.target.value)}
-                        placeholder="email"
-                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
-                      />
-                      <input
-                        type="password"
-                        value={newUserPassword}
-                        onChange={(event) => setNewUserPassword(event.target.value)}
-                        placeholder="password"
-                        className="h-11 w-full rounded-xl border border-white/10 bg-black/20 px-4 text-sm text-slate-100 outline-none focus:border-primary/60"
-                      />
-                      <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
-                        <input type="checkbox" checked={newIsAdmin} onChange={(event) => setNewIsAdmin(event.target.checked)} className="h-4 w-4" />
-                        <span className="text-sm text-slate-200">Make this user an admin</span>
-                      </label>
-
-                      {!newIsAdmin && (
-                        <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
-                          {projects.map((project) => {
-                            const permission = newPermissions[project.id] ?? { canView: false, canRun: false };
-                            return (
-                              <div key={project.id} className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-                                <div>
-                                  <p className="text-sm font-semibold text-white">{project.name}</p>
-                                  <p className="text-xs text-slate-400">{project.baseUrl}</p>
-                                </div>
-                                <div className="flex gap-5 text-sm text-slate-200">
-                                  <label className="inline-flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={permission.canView}
-                                      onChange={(event) => {
-                                        setNewPermissions((previous) =>
-                                          updatePermissionState(previous, project.id, "canView", event.target.checked),
-                                        );
-                                      }}
-                                      className="h-4 w-4"
-                                    />
-                                    View
-                                  </label>
-                                  <label className="inline-flex items-center gap-2">
-                                    <input
-                                      type="checkbox"
-                                      checked={permission.canRun}
-                                      onChange={(event) => {
-                                        setNewPermissions((previous) =>
-                                          updatePermissionState(previous, project.id, "canRun", event.target.checked),
-                                        );
-                                      }}
-                                      className="h-4 w-4"
-                                    />
-                                    Run
-                                  </label>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      <button
-                        onClick={() => void handleCreateUser()}
-                        disabled={creatingUser || (!newIsAdmin && !hasAnyPermission(newPermissions))}
-                        className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
-                      >
-                        {creatingUser ? "Creating user..." : "Create User"}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                    <div className="mb-4 flex items-center justify-between">
-                      <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
-                        <Users className="h-4 w-4 text-secondary-teal" />
-                        Existing Users
-                      </h3>
-                      <button
-                        onClick={() => void loadUsers()}
-                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.08]"
-                      >
-                        <RefreshCcw className="h-3.5 w-3.5" />
-                        Refresh
-                      </button>
-                    </div>
-
-                    {isLoadingUsers ? (
-                      <p className="text-sm text-slate-400">Loading users...</p>
-                    ) : users.length === 0 ? (
-                      <p className="text-sm text-slate-400">No users yet.</p>
-                    ) : (
-                      <div className="space-y-4">
-                        {users.map((member) => {
-                          const draft = accessDrafts[member.id] ?? {
-                            isAdmin: member.isAdmin,
-                            permissions: createPermissionState(projects.map((project) => project.id)),
-                          };
-
-                          return (
-                            <div key={member.id} className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
-                              <div className="mb-4 flex items-center gap-3">
-                                <UserAvatar username={member.username} avatarDataUrl={member.avatarDataUrl} size="sm" />
-                                <div className="min-w-0">
-                                  <p className="truncate text-sm font-semibold text-white">{member.username}</p>
-                                  <p className="truncate text-xs text-slate-400">{member.email}</p>
-                                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                                    {member.twoFactorEnabled ? "2FA enabled" : "2FA off"}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <label className="mb-4 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
-                                <input
-                                  type="checkbox"
-                                  checked={draft.isAdmin}
-                                  onChange={(event) => {
-                                    setAccessDrafts((previous) => ({
-                                      ...previous,
-                                      [member.id]: {
-                                        ...draft,
-                                        isAdmin: event.target.checked,
-                                      },
-                                    }));
-                                  }}
-                                  className="h-4 w-4"
-                                />
-                                <span className="text-sm text-slate-200">Admin access</span>
-                              </label>
-
-                              {!draft.isAdmin && (
-                                <div className="space-y-3">
-                                  {projects.map((project) => {
-                                    const permission = draft.permissions[project.id] ?? { canView: false, canRun: false };
-                                    return (
-                                      <div key={project.id} className="flex flex-col gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3">
-                                        <div>
-                                          <p className="text-sm font-semibold text-white">{project.name}</p>
-                                          <p className="text-xs text-slate-400">{project.baseUrl}</p>
-                                        </div>
-                                        <div className="flex gap-5 text-sm text-slate-200">
-                                          <label className="inline-flex items-center gap-2">
-                                            <input
-                                              type="checkbox"
-                                              checked={permission.canView}
-                                              onChange={(event) => {
-                                                setAccessDrafts((previous) => ({
-                                                  ...previous,
-                                                  [member.id]: {
-                                                    ...draft,
-                                                    permissions: updatePermissionState(draft.permissions, project.id, "canView", event.target.checked),
-                                                  },
-                                                }));
-                                              }}
-                                              className="h-4 w-4"
-                                            />
-                                            View
-                                          </label>
-                                          <label className="inline-flex items-center gap-2">
-                                            <input
-                                              type="checkbox"
-                                              checked={permission.canRun}
-                                              onChange={(event) => {
-                                                setAccessDrafts((previous) => ({
-                                                  ...previous,
-                                                  [member.id]: {
-                                                    ...draft,
-                                                    permissions: updatePermissionState(draft.permissions, project.id, "canRun", event.target.checked),
-                                                  },
-                                                }));
-                                              }}
-                                              className="h-4 w-4"
-                                            />
-                                            Run
-                                          </label>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-
-                              <div className="mt-4">
-                                <button
-                                  onClick={() => void handleSaveUserAccess(member.id)}
-                                  disabled={savingAccessUserId === member.id || (!draft.isAdmin && !hasAnyPermission(draft.permissions))}
-                                  className="rounded-xl bg-primary px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
-                                >
-                                  {savingAccessUserId === member.id ? "Saving..." : "Save Access"}
-                                </button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                    {user.twoFactorEnabled && !pendingSetup && (
+                      <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-sm text-slate-300">
+                          Enter a fresh authenticator code to disable 2-step authentication.
+                        </p>
+                        <input
+                          inputMode="numeric"
+                          value={twoFactorCode}
+                          onChange={(event) => setTwoFactorCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                          className="w-full rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm tracking-[0.28em] text-slate-100 outline-none transition focus:border-primary/60"
+                        />
+                        <button
+                          type="button"
+                          disabled={twoFactorBusy}
+                          onClick={() => void handleDisableTwoFactor()}
+                          className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-5 py-3 text-sm font-semibold text-rose-200 transition hover:bg-rose-500/20 disabled:opacity-60"
+                        >
+                          {twoFactorBusy ? "Disabling..." : "Disable 2-Step Authentication"}
+                        </button>
                       </div>
                     )}
                   </div>
@@ -815,8 +693,195 @@ export const SettingsPage = () => {
               </div>
             </section>
           )}
+          {activeTab === "access" && (
+            <section className="glass-panel rounded-3xl border border-white/10 p-6">
+              <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-white">Access Management</h2>
+                  <p className="mt-1 text-sm text-slate-400">
+                    Share the selected project with teammates by email. If they sign in later with the same email, their access will appear automatically.
+                  </p>
+                </div>
+                {selectedProject && (
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+                    <p className="font-semibold text-white">{selectedProject.name}</p>
+                    <p className="mt-1 text-xs text-slate-400">{selectedProject.baseUrl}</p>
+                  </div>
+                )}
+              </div>
+
+              {(accessError || accessMessage) && (
+                <div
+                  className={`mb-4 rounded-2xl px-4 py-3 text-sm ${
+                    accessError
+                      ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                      : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                  }`}
+                >
+                  {accessError || accessMessage}
+                </div>
+              )}
+
+              {!selectedProject ? (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-300">
+                  Select a project first, then come back here to manage who can view it or run tests for it.
+                </div>
+              ) : !selectedProject.access.canManage ? (
+                <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-300">
+                  Only the project owner can manage sharing for this project.
+                </div>
+              ) : (
+                <div className="grid gap-8 xl:grid-cols-[360px,1fr]">
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                    <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
+                      <UserPlus className="h-4 w-4 text-primary" />
+                      Share Project
+                    </h3>
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <label className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                          Search by username or email
+                        </label>
+                        <div className="relative">
+                          <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                          <input
+                            value={searchTerm}
+                            onChange={(event) => setSearchTerm(event.target.value)}
+                            placeholder="Search teammates or type an email"
+                            className="w-full rounded-2xl border border-white/10 bg-black/20 py-3 pl-11 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={inviteCanView}
+                            onChange={(event) => setInviteCanView(event.target.checked || inviteCanRun)}
+                            className="h-4 w-4"
+                          />
+                          View dashboard & history
+                        </label>
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={inviteCanRun}
+                            onChange={(event) => {
+                              setInviteCanRun(event.target.checked);
+                              if (event.target.checked) {
+                                setInviteCanView(true);
+                              }
+                            }}
+                            className="h-4 w-4"
+                          />
+                          Run tests
+                        </label>
+                      </div>
+
+                      <div className="space-y-3">
+                        {searchLoading && <p className="text-sm text-slate-400">Searching existing users...</p>}
+
+                        {!searchLoading &&
+                          searchResults.map((result) => (
+                            <div key={result.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                              <div className="flex items-center gap-3">
+                                <UserAvatar username={result.username} avatarDataUrl={result.avatarDataUrl} size="sm" />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-white">{result.username}</p>
+                                  <p className="truncate text-xs text-slate-400">{result.email}</p>
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                disabled={sharingEmail === result.email || (!inviteCanView && !inviteCanRun)}
+                                onClick={() => void handleShare(result.email)}
+                                className="mt-4 w-full rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
+                              >
+                                {sharingEmail === result.email ? "Sharing..." : "Add To Project"}
+                              </button>
+                            </div>
+                          ))}
+
+                        {inviteEmail && !searchResults.some((result) => result.email.toLowerCase() === inviteEmail) && (
+                          <div className="rounded-2xl border border-dashed border-white/15 bg-black/20 p-4">
+                            <p className="text-sm text-slate-300">
+                              No existing user matched <span className="font-semibold text-white">{inviteEmail}</span> yet.
+                            </p>
+                            <p className="mt-1 text-xs text-slate-500">
+                              We will save access by email now, and the person will get it automatically after they create an account or sign in with GitHub using the same email.
+                            </p>
+                            <button
+                              type="button"
+                              disabled={sharingEmail === inviteEmail || (!inviteCanView && !inviteCanRun)}
+                              onClick={() => void handleShare(inviteEmail)}
+                              className="mt-4 w-full rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2.5 text-sm font-semibold text-slate-100 transition hover:bg-white/[0.08] disabled:opacity-60"
+                            >
+                              {sharingEmail === inviteEmail ? "Saving..." : "Share By Email"}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
+                    <div className="mb-4 flex items-center justify-between gap-3">
+                      <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
+                        <Users className="h-4 w-4 text-primary" />
+                        People With Access
+                      </h3>
+                      <button
+                        type="button"
+                        onClick={() => void loadProjectAccess()}
+                        className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-slate-300 transition hover:bg-white/[0.05]"
+                      >
+                        <RefreshCcw className="h-3.5 w-3.5" /> Refresh
+                      </button>
+                    </div>
+
+                    {accessLoading ? (
+                      <p className="text-sm text-slate-400">Loading current access...</p>
+                    ) : (
+                      <div className="space-y-4">
+                        {owner && (
+                          <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Project Owner</p>
+                            <div className="mt-3 flex items-center gap-3">
+                              <UserAvatar username={owner.username || owner.email} avatarDataUrl={owner.avatarDataUrl} size="sm" />
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-semibold text-white">{owner.username || owner.email}</p>
+                                <p className="truncate text-xs text-slate-400">{owner.email}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {members.length === 0 ? (
+                          <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-sm text-slate-300">
+                            This project is not shared yet. Add a teammate by username or email on the left.
+                          </div>
+                        ) : (
+                          members.map((member) => (
+                            <ProjectMemberRow
+                              key={`${member.key}-${member.canView ? "view" : "hide"}-${member.canRun ? "run" : "norun"}`}
+                              member={member}
+                              busy={memberActionEmail === member.email}
+                              onSave={(canView, canRun) => void handleUpdateMember(member, canView, canRun)}
+                              onRemove={() => void handleRemoveMember(member)}
+                            />
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
         </div>
-      </section>
+      </div>
     </div>
   );
 };
