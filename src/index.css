@@ -149,6 +149,102 @@
     @apply absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/10 to-transparent;
     animation: shimmer 2s infinite;
   }
+
+  .script-editor {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    grid-template-columns: 68px 1fr;
+    min-height: 100%;
+    overflow: hidden;
+    font-family: "Consolas", "JetBrains Mono", "Fira Code", monospace;
+    font-size: 13px;
+    line-height: 1.75;
+  }
+
+  .script-editor__gutter {
+    overflow: hidden;
+    border-right: 1px solid rgba(148, 163, 184, 0.12);
+    background:
+      linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(8, 12, 25, 0.92)),
+      radial-gradient(circle at top, rgba(59, 130, 246, 0.08), transparent 45%);
+    padding: 24px 12px 24px 0;
+    text-align: right;
+    color: rgba(148, 163, 184, 0.6);
+    user-select: none;
+  }
+
+  .script-editor__line-number {
+    height: 1.75em;
+    white-space: pre;
+  }
+
+  .script-editor__viewport {
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, rgba(6, 10, 24, 0.98), rgba(2, 6, 18, 0.98)),
+      linear-gradient(90deg, rgba(59, 130, 246, 0.04), transparent 22%);
+  }
+
+  .script-editor__code,
+  .script-editor__textarea {
+    margin: 0;
+    height: 100%;
+    width: 100%;
+    overflow: auto;
+    padding: 24px 24px 24px 20px;
+    box-sizing: border-box;
+    white-space: pre;
+    tab-size: 2;
+  }
+
+  .script-editor__code {
+    pointer-events: none;
+    color: #dbe7ff;
+  }
+
+  .script-editor__line {
+    min-height: 1.75em;
+  }
+
+  .script-editor__textarea {
+    position: absolute;
+    inset: 0;
+    resize: none;
+    border: none;
+    background: transparent;
+    color: transparent;
+    caret-color: #f8fafc;
+    -webkit-text-fill-color: transparent;
+    outline: none;
+  }
+
+  .script-editor__textarea::selection {
+    background: rgba(59, 130, 246, 0.28);
+  }
+
+  .script-editor__keyword {
+    color: #c084fc;
+    font-weight: 600;
+  }
+
+  .script-editor__string {
+    color: #86efac;
+  }
+
+  .script-editor__number {
+    color: #f9a8d4;
+  }
+
+  .script-editor__comment {
+    color: #64748b;
+    font-style: italic;
+  }
+
+  .script-editor__symbol {
+    color: #7dd3fc;
+  }
 }
 
 ::-webkit-scrollbar {

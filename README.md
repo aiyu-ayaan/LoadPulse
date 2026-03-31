@@ -1,77 +1,178 @@
 # LoadPulse
 
-LoadPulse now includes:
-- A React + Vite dashboard frontend
-- A Node.js backend (Express + Socket.IO)
-- MongoDB persistence for test runs, live snapshots, and history
-- k6-based load test execution
+LoadPulse is a project-based website performance testing workspace built with React, Node.js, MongoDB, Socket.IO, and k6.
 
-## Current scope implemented
+It is designed to help teams run load tests, watch live metrics, review historical runs, and share access to specific projects without making the UI feel too technical.
 
-1. Create multiple **Projects** (each with its own website URL)
-2. Run tests per project (multiple projects can run tests simultaneously)
-3. Stream live metrics to the **Dashboard** in real time
-4. Persist and show per-project run history in **Test History**
-5. Non-technical dashboard language and health summary for easier understanding
+![LoadPulse Dashboard](./pictures/Dashboard.png)
 
-## Environment
+## Status
 
-Create `.env` from `.env.example` (already added in this repo):
+This project is still under active development.
+
+That means:
+- some flows are still evolving
+- some UI areas may change
+- you may still run into bugs or unfinished edges
+
+## What LoadPulse Can Do Today
+
+- Create multiple projects, each with its own website URL
+- Run k6-powered tests for different projects at the same time
+- Stream live run data to the dashboard with Socket.IO
+- Keep per-project test history in MongoDB
+- Open detailed run pages for individual test sessions
+- Show project-level reports and recent performance summaries
+- Share project access by email with teammates
+- Automatically match shared access when a user later signs in with the same email
+- Support local username/password auth
+- Support optional GitHub login
+- Support optional authenticator-based 2-step verification
+- Show in-app notifications for test lifecycle events
+
+## Screenshots
+
+### Login
+
+![LoadPulse Login](./pictures/Login.png)
+
+### New Test
+
+![LoadPulse New Test](./pictures/New%20Test.png)
+
+### Test History
+
+![LoadPulse Test History](./pictures/History.png)
+
+### Reports
+
+![LoadPulse Reports](./pictures/Report.png)
+
+## Product Structure
+
+- `Projects`: create and manage monitored websites
+- `Dashboard`: current project overview plus running and recent test activity
+- `New Test`: configure and launch a new test with an editor-style script panel
+- `Test History`: browse previous runs for the selected project
+- `Reports`: project-focused analytical summary view
+- `Settings`
+  - `User Settings`: username, email, profile photo
+  - `Security`: password, GitHub linkage, authenticator setup
+  - `Access Management`: share the selected project with other users
+
+## Tech Stack
+
+- Frontend: React, TypeScript, Vite, Tailwind CSS, Framer Motion, Recharts
+- Backend: Node.js, Express, Socket.IO
+- Database: MongoDB with Mongoose
+- Load testing: k6
+- Auth: JWT, optional GitHub OAuth, optional TOTP 2FA
+
+## Requirements
+
+Before running locally, make sure you have:
+
+- Node.js 20+
+- MongoDB
+- k6 installed and available in `PATH`
+
+## Environment Setup
+
+Create a `.env` file from `.env.example`.
+
+Current environment template:
 
 ```env
 FRONTEND_PORT=5173
 BACKEND_PORT=4000
+
 CLIENT_ORIGIN=http://localhost:5173
 VITE_API_PROXY_TARGET=http://localhost:4000
+
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB=loadpulse
+
+# Optional: if empty, server generates a temporary secret on startup.
+AUTH_JWT_SECRET=
+
+# Optional GitHub OAuth login
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+GITHUB_CALLBACK_URL=http://localhost:4000/api/auth/github/callback
+
 MAX_SERIES_POINTS=180
 MAX_PERCENTILE_SAMPLES=5000
 ```
 
-Notes:
-- `FRONTEND_PORT` controls the Vite dev server port for local development.
-- `BACKEND_PORT` controls the Express + Socket.IO server port locally and inside Docker.
-- `VITE_API_PROXY_TARGET` is the local dev proxy target for `/api` and `/socket.io`.
-- In Docker deployment, the built frontend is served by the backend, so Docker exposes a single web port. `docker-compose.yml` maps `FRONTEND_PORT` on your host to `BACKEND_PORT` inside the container.
+## Environment Notes
 
-## Local development
+- `FRONTEND_PORT` controls the Vite dev server locally
+- `BACKEND_PORT` controls the Express + Socket.IO server locally and in Docker
+- `CLIENT_ORIGIN` should point to the frontend URL used by the browser
+- `VITE_API_PROXY_TARGET` is used by Vite to proxy `/api` and `/socket.io`
+- `AUTH_JWT_SECRET` should be set in production so auth remains stable across restarts
+- If GitHub OAuth env values are not present, the app falls back to normal local sign-in/sign-up
 
-Prerequisites:
-- Node.js 20+
-- MongoDB
-- k6 installed and available in PATH
+## Local Development
 
-Run:
+Install dependencies:
 
 ```bash
 npm install
+```
+
+Run frontend and backend together:
+
+```bash
 npm run dev
 ```
 
-- Frontend: `http://localhost:5173`
-- Backend API + Socket.IO: `http://localhost:4000`
+Useful scripts:
 
-You can change both from `.env`:
-- Frontend: `http://localhost:${FRONTEND_PORT}`
-- Backend: `http://localhost:${BACKEND_PORT}`
+```bash
+npm run dev
+npm run dev:client
+npm run dev:server
+npm run lint
+npm run build
+npm run start
+```
 
-## API endpoints
+Default local URLs:
 
-- `GET /api/projects` - list projects with run statistics
-- `POST /api/projects` - create a project
-- `POST /api/tests/run` - queue a new k6 test run
-- `GET /api/dashboard/overview?projectId=...` - dashboard data for a project
-- `GET /api/tests/history?projectId=...` - test run history for a project
-- `GET /api/tests/:id` - run details
-- `DELETE /api/tests/:id` - delete one run (non-running only)
-- `DELETE /api/tests/history?projectId=...` - clear completed history for a project
+- Frontend: [http://localhost:5173](http://localhost:5173)
+- Backend API: [http://localhost:4000](http://localhost:4000)
 
-## Docker deployment
+If you change the ports in `.env`, update `CLIENT_ORIGIN`, `VITE_API_PROXY_TARGET`, and if needed `GITHUB_CALLBACK_URL` to match.
 
-The project includes:
-- `Dockerfile` (build frontend + run backend + include k6)
-- `docker-compose.yml` (app + MongoDB)
+## Authentication Flow
+
+- If no users exist yet, the sign-in page starts in account creation mode
+- Users can create an account with:
+  - username
+  - email
+  - password
+- Users can sign in with:
+  - username + password
+  - GitHub OAuth if configured
+- If 2-step verification is enabled, the login flow asks for an authenticator code before access is granted
+
+## Project Access Model
+
+- Access is project-specific
+- A user can be granted:
+  - view access
+  - run access
+- Sharing is email-based
+- If a project is shared to an email address before that person signs up, access is attached automatically once they log in with the same email later
+- This also works for GitHub login when the GitHub account uses the same email
+
+## Docker
+
+The repository includes:
+
+- `Dockerfile`
+- `docker-compose.yml`
 
 Run with Docker Compose:
 
@@ -79,10 +180,9 @@ Run with Docker Compose:
 docker compose up --build
 ```
 
-By default the app will be available at `http://localhost:4000`.
+Port behavior in Docker:
 
-Docker port behavior:
-- Host/public port: `FRONTEND_PORT`
+- Host/public app port: `FRONTEND_PORT`
 - Container app port: `BACKEND_PORT`
 
 Example:
@@ -95,5 +195,38 @@ GITHUB_CALLBACK_URL=http://localhost:8080/api/auth/github/callback
 ```
 
 With that setup:
-- Docker app opens at `http://localhost:8080`
-- The Node server listens on port `5000` inside the container
+
+- the app opens at `http://localhost:8080`
+- the Node server listens on port `5000` inside the container
+
+## Main API Surface
+
+- `GET /api/projects`
+- `POST /api/projects`
+- `DELETE /api/projects/:id`
+- `POST /api/tests/run`
+- `GET /api/tests/history?projectId=...`
+- `GET /api/tests/:id`
+- `DELETE /api/tests/:id`
+- `GET /api/dashboard/overview?projectId=...`
+- `GET /api/reports/summary?projectId=...`
+- `POST /api/auth/signin`
+- `POST /api/auth/signup`
+- `GET /api/auth/me`
+
+## Notes For Production
+
+- Set a strong `AUTH_JWT_SECRET`
+- Configure GitHub OAuth only if you want GitHub login
+- Make sure MongoDB is reachable from the container or host environment
+- Keep k6 installed in the runtime environment if you are not using Docker
+
+## Known Reality
+
+LoadPulse is already useful, but it is not finished yet.
+
+Please expect:
+
+- rough edges in some flows
+- ongoing UI and permission improvements
+- occasional bugs while the product is still being shaped

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { Play, Code2, Settings2, Globe, Clock, Users, ChevronDown, Save, Terminal, FolderKanban } from "lucide-react";
+import { Play, Code2, Settings2, Globe, Clock, Users, ChevronDown, FolderKanban } from "lucide-react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { runTest } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
 import { useNotifications } from "../context/useNotifications";
+import { ScriptEditor } from "../components/ScriptEditor";
 
 const buildTemplateScript = (url: string, vus: number, duration: string) => `import http from 'k6/http';
 import { sleep, check } from 'k6';
@@ -120,15 +121,6 @@ export const NewTestPage = () => {
           <p className="text-sm text-muted md:text-base">
             Project: <span className="font-semibold text-white">{selectedProject.name}</span> • {selectedProject.baseUrl}
           </p>
-        </div>
-
-        <div className="flex gap-3">
-          <button className="glass-panel flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors hover:bg-white/10">
-            <Save className="h-4 w-4" /> Save Draft
-          </button>
-          <button className="glass-panel flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors hover:bg-white/10">
-            <Terminal className="h-4 w-4" /> CLI Instructions
-          </button>
         </div>
       </div>
 
@@ -271,17 +263,15 @@ export const NewTestPage = () => {
               </div>
             </div>
 
-            <div className="relative flex-1 bg-black/45">
-              <textarea
+            <div className="relative flex-1 bg-[#050816]">
+              <div className="absolute inset-x-0 top-0 h-10 bg-[linear-gradient(180deg,rgba(15,23,42,0.55),rgba(15,23,42,0))] pointer-events-none" />
+              <ScriptEditor
                 value={script}
-                onChange={(event) => {
-                  setScript(event.target.value);
+                onChange={(nextValue) => {
+                  setScript(nextValue);
                   setIsScriptDirty(true);
                 }}
-                className="absolute inset-0 h-full w-full resize-none border-none bg-transparent p-6 font-mono text-sm leading-6 text-slate-300 outline-none"
-                spellCheck={false}
               />
-              <div className="absolute left-1 top-6 h-[calc(100%-48px)] w-px bg-white/5" />
             </div>
 
             <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.04] px-6 py-3 text-xs text-slate-500">
