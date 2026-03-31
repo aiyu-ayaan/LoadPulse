@@ -18,7 +18,6 @@ import {
   Sparkles
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useEffect } from 'react';
 
 const menuItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/', end: true },
@@ -33,10 +32,6 @@ export const DashboardLayout = () => {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const location = useLocation();
-
-  useEffect(() => {
-    setIsMobileSidebarOpen(false);
-  }, [location.pathname]);
 
   return (
     <div className="relative min-h-screen overflow-hidden text-foreground">
@@ -88,6 +83,7 @@ export const DashboardLayout = () => {
               key={item.path}
               to={item.path}
               end={item.end}
+              onClick={() => setIsMobileSidebarOpen(false)}
               className={({ isActive }) =>
                 `group flex items-center gap-3 rounded-2xl px-3 py-3 transition-all duration-200 ${isActive
                   ? 'neon-border bg-primary/20 text-primary'

@@ -27,6 +27,16 @@ const detailedLatencyData = Array.from({ length: 24 }, (_, i) => ({
   p99: Math.floor(Math.random() * 120) + 250,
 }));
 
+const cpuBars = Array.from({ length: 40 }, () => ({
+  height: Math.random() * 100,
+  opacity: 0.2 + Math.random() * 0.8,
+}));
+
+const bandwidthBars = Array.from({ length: 40 }, () => ({
+  height: Math.random() * 100,
+  opacity: 0.2 + Math.random() * 0.8,
+}));
+
 export const ReportsPage = () => {
   return (
     <div className="space-y-8 pb-12">
@@ -110,11 +120,11 @@ export const ReportsPage = () => {
                 <span className="text-xs font-bold text-secondary-purple bg-secondary-purple/10 px-2 py-1 rounded-md">82% Peak</span>
               </div>
               <div className="h-32 bg-black/20 rounded-xl flex items-end gap-1 p-3">
-                {Array.from({ length: 40 }).map((_, i) => (
+                {cpuBars.map((bar, i) => (
                   <div
                     key={i}
                     className="flex-1 bg-secondary-purple hover:bg-secondary-purple/80 transition-colors rounded-t-sm"
-                    style={{ height: `${Math.random() * 100}%`, opacity: 0.2 + (Math.random() * 0.8) }}
+                    style={{ height: `${bar.height}%`, opacity: bar.opacity }}
                   />
                 ))}
               </div>
@@ -128,11 +138,11 @@ export const ReportsPage = () => {
                 <span className="text-xs font-bold text-secondary-teal bg-secondary-teal/10 px-2 py-1 rounded-md">4.2 Gbps</span>
               </div>
               <div className="h-32 bg-black/20 rounded-xl flex items-end gap-1 p-3">
-                {Array.from({ length: 40 }).map((_, i) => (
+                {bandwidthBars.map((bar, i) => (
                   <div
                     key={i}
                     className="flex-1 bg-secondary-teal hover:bg-secondary-teal/80 transition-colors rounded-t-sm"
-                    style={{ height: `${Math.random() * 100}%`, opacity: 0.2 + (Math.random() * 0.8) }}
+                    style={{ height: `${bar.height}%`, opacity: bar.opacity }}
                   />
                 ))}
               </div>

@@ -1,73 +1,66 @@
-# React + TypeScript + Vite
+# LoadPulse
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+LoadPulse now includes:
+- A React + Vite dashboard frontend
+- A Node.js backend (Express + Socket.IO)
+- MongoDB persistence for test runs, live snapshots, and history
+- k6-based load test execution
 
-Currently, two official plugins are available:
+## Current scope implemented
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+1. Run a new k6 test from the **New Test** page
+2. Stream live metrics to the **Dashboard** in real time
+3. Persist and show run history in **Test History**
 
-## React Compiler
+## Environment
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+Create `.env` from `.env.example` (already added in this repo):
 
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```env
+PORT=4000
+CLIENT_ORIGIN=http://localhost:5173
+MONGODB_URI=mongodb://localhost:27017
+MONGODB_DB=loadpulse
+MAX_SERIES_POINTS=180
+MAX_PERCENTILE_SAMPLES=5000
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Local development
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Prerequisites:
+- Node.js 20+
+- MongoDB
+- k6 installed and available in PATH
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+Run:
+
+```bash
+npm install
+npm run dev
 ```
+
+- Frontend: `http://localhost:5173`
+- Backend API + Socket.IO: `http://localhost:4000`
+
+## API endpoints
+
+- `POST /api/tests/run` - queue a new k6 test run
+- `GET /api/dashboard/overview` - dashboard data (live or latest run)
+- `GET /api/tests/history` - test run history
+- `GET /api/tests/:id` - run details
+- `DELETE /api/tests/:id` - delete one run (non-running only)
+- `DELETE /api/tests/history` - clear completed history
+
+## Docker deployment
+
+The project includes:
+- `Dockerfile` (build frontend + run backend + include k6)
+- `docker-compose.yml` (app + MongoDB)
+
+Run with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
+App will be available at `http://localhost:4000`.
