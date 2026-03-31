@@ -91,6 +91,7 @@ VITE_API_PROXY_TARGET=http://localhost:4000
 
 MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB=loadpulse
+MONGO_PORT=27018
 
 # Optional: if empty, server generates a temporary secret on startup.
 AUTH_JWT_SECRET=
@@ -110,6 +111,7 @@ MAX_PERCENTILE_SAMPLES=5000
 - `BACKEND_PORT` controls the Express + Socket.IO server locally and in Docker
 - `CLIENT_ORIGIN` should point to the frontend URL used by the browser
 - `VITE_API_PROXY_TARGET` is used by Vite to proxy `/api` and `/socket.io`
+- `MONGO_PORT` is the host port used only for the Docker MongoDB container mapping
 - `AUTH_JWT_SECRET` should be set in production so auth remains stable across restarts
 - If GitHub OAuth env values are not present, the app falls back to normal local sign-in/sign-up
 
@@ -184,6 +186,8 @@ Port behavior in Docker:
 
 - Host/public app port: `FRONTEND_PORT`
 - Container app port: `BACKEND_PORT`
+- Host MongoDB port: `MONGO_PORT`
+- Container MongoDB port: `27017`
 
 Example:
 
@@ -198,6 +202,8 @@ With that setup:
 
 - the app opens at `http://localhost:8080`
 - the Node server listens on port `5000` inside the container
+
+If you already have MongoDB running locally on `27017`, keep `MONGO_PORT=27018` or any other free host port so you do not have to stop your existing database.
 
 ## Main API Surface
 
