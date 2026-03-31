@@ -72,21 +72,21 @@ export const ReportsPage = () => {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         <div className="lg:col-span-3 space-y-6">
           {/* Main Percentile Chart */}
-          <div className="glass rounded-2xl p-8 h-[450px]">
+          <div className="premium-card p-8 h-[450px]">
             <div className="flex items-center justify-between mb-8">
               <div>
-                <h3 className="text-xl font-bold text-white">Latency Percentiles (p50, p95, p99)</h3>
-                <p className="text-sm text-slate-400">Comparing latency thresholds across the 24h run duration.</p>
+                <h3 className="text-xl font-bold text-white tracking-tight">Latency Percentiles (p50, p95, p99)</h3>
+                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">Historical Comparison (24h)</p>
               </div>
               <div className="flex gap-4">
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-3 h-3 rounded-full bg-primary" /> <span className="text-slate-400">p50</span>
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted">
+                  <div className="w-2.5 h-2.5 rounded-full bg-primary" /> p50
                 </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-3 h-3 rounded-full bg-secondary-purple" /> <span className="text-slate-400">p95</span>
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted">
+                  <div className="w-2.5 h-2.5 rounded-full bg-secondary-purple" /> p95
                 </div>
-                <div className="flex items-center gap-2 text-xs">
-                  <div className="w-3 h-3 rounded-full bg-secondary-teal" /> <span className="text-slate-400">p99</span>
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted">
+                  <div className="w-2.5 h-2.5 rounded-full bg-secondary-teal" /> p99
                 </div>
               </div>
             </div>
@@ -95,56 +95,72 @@ export const ReportsPage = () => {
               <AreaChart data={detailedLatencyData}>
                 <defs>
                   <linearGradient id="colorP50" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.1} />
-                    <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
+                    <stop offset="5%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0.2} />
+                    <stop offset="95%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-                <XAxis dataKey="time" stroke="#475569" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
-                <YAxis stroke="#475569" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} unit="ms" />
+                <CartesianGrid strokeDasharray="3 3" stroke="hsla(210, 40%, 98%, 0.05)" vertical={false} />
+                <XAxis dataKey="time" stroke="hsla(210, 40%, 98%, 0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                <YAxis stroke="hsla(210, 40%, 98%, 0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} unit="ms" />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#0F172A', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
-                  itemStyle={{ fontSize: '12px' }}
+                  content={({ active, payload }) => {
+                    if (active && payload && payload.length) {
+                      return (
+                        <div className="glass-panel border-white/10 px-3 py-2 rounded-xl shadow-2xl">
+                          <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1">{payload[0].payload.time}</p>
+                          <div className="space-y-1">
+                            {payload.map((entry, idx) => (
+                              <p key={idx} className="text-xs font-bold text-white flex items-center justify-between gap-4">
+                                <span style={{ color: entry.color }}>{entry.name}:</span>
+                                <span>{entry.value}ms</span>
+                              </p>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+                    return null;
+                  }}
                 />
-                <Area type="monotone" dataKey="p99" stroke="#14B8A6" fill="transparent" strokeWidth={2} />
-                <Area type="monotone" dataKey="p95" stroke="#8B5CF6" fill="transparent" strokeWidth={2} />
-                <Area type="monotone" dataKey="p50" stroke="#3B82F6" fill="url(#colorP50)" strokeWidth={3} />
+                <Area type="monotone" dataKey="p99" stroke="hsl(171, 77%, 48%)" fill="transparent" strokeWidth={2} />
+                <Area type="monotone" dataKey="p95" stroke="hsl(258, 89%, 66%)" fill="transparent" strokeWidth={2} />
+                <Area type="monotone" dataKey="p50" stroke="hsl(217, 91%, 60%)" fill="url(#colorP50)" strokeWidth={3} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="glass rounded-2xl p-6">
+            <div className="premium-card p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <Cpu className="w-5 h-5 text-secondary-purple" />
                   <h3 className="font-bold text-white">CPU Utilization</h3>
                 </div>
-                <span className="text-xs font-bold text-secondary-purple bg-secondary-purple/10 px-2 py-1 rounded-md">82% Peak</span>
+                <span className="text-[10px] font-black text-secondary-purple bg-secondary-purple/10 px-2 py-1 rounded-md uppercase tracking-wider">82% Peak</span>
               </div>
-              <div className="h-32 bg-black/20 rounded-xl flex items-end gap-1 p-3">
+              <div className="h-32 bg-white/[0.02] rounded-2xl flex items-end gap-1.5 p-4 border border-white/[0.01]">
                 {cpuBars.map((bar, i) => (
                   <div
                     key={i}
-                    className="flex-1 bg-secondary-purple hover:bg-secondary-purple/80 transition-colors rounded-t-sm"
+                    className="flex-1 bg-secondary-purple hover:bg-secondary-purple/80 transition-all rounded-t-sm"
                     style={{ height: `${bar.height}%`, opacity: bar.opacity }}
                   />
                 ))}
               </div>
             </div>
-            <div className="glass rounded-2xl p-6">
+            <div className="premium-card p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-3">
                   <Network className="w-5 h-5 text-secondary-teal" />
-                  <h3 className="font-bold text-white">Bandwidth Consumption</h3>
+                  <h3 className="font-bold text-white">Bandwidth</h3>
                 </div>
-                <span className="text-xs font-bold text-secondary-teal bg-secondary-teal/10 px-2 py-1 rounded-md">4.2 Gbps</span>
+                <span className="text-[10px] font-black text-secondary-teal bg-secondary-teal/10 px-2 py-1 rounded-md uppercase tracking-wider">4.2 Gbps</span>
               </div>
-              <div className="h-32 bg-black/20 rounded-xl flex items-end gap-1 p-3">
+              <div className="h-32 bg-white/[0.02] rounded-2xl flex items-end gap-1.5 p-4 border border-white/[0.01]">
                 {bandwidthBars.map((bar, i) => (
                   <div
                     key={i}
-                    className="flex-1 bg-secondary-teal hover:bg-secondary-teal/80 transition-colors rounded-t-sm"
+                    className="flex-1 bg-secondary-teal hover:bg-secondary-teal/80 transition-all rounded-t-sm"
                     style={{ height: `${bar.height}%`, opacity: bar.opacity }}
                   />
                 ))}
@@ -154,55 +170,56 @@ export const ReportsPage = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="glass rounded-2xl p-6 border-l-4 border-l-emerald-500">
-            <h4 className="text-sm font-bold text-slate-400 mb-4 flex items-center gap-2">
-              <TrendingDown className="w-4 h-4 text-emerald-500" /> Improvement Score
+          <div className="premium-card p-6 border-l-4 border-l-success">
+            <h4 className="text-[10px] font-black text-muted/60 mb-4 flex items-center gap-2 uppercase tracking-widest">
+              <TrendingDown className="w-3.5 h-3.5 text-success" /> Score
             </h4>
-            <div className="flex items-end gap-2">
-              <span className="text-4xl font-black text-white">+24.5%</span>
-              <span className="text-xs text-emerald-500 font-bold pb-2">vs Last Week</span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-black text-white tracking-tighter">+24.5%</span>
+              <span className="text-[10px] text-success font-black uppercase tracking-wider pb-1">vs Last Week</span>
             </div>
-            <p className="text-xs text-slate-500 mt-4 leading-relaxed line-clamp-3">
+            <p className="text-xs text-muted/80 mt-4 leading-relaxed font-medium">
               Performance has stabilized significantly after the v2.4 server-side caching deployment. Latency spikes are down 40%.
             </p>
           </div>
 
-          <div className="glass rounded-2xl p-6">
-            <h4 className="text-sm font-bold text-slate-400 mb-6 flex items-center gap-2">
-              <Activity className="w-4 h-4 text-primary" /> Anomaly Detection
+          <div className="premium-card p-6">
+            <h4 className="text-[10px] font-black text-muted/60 mb-6 flex items-center gap-2 uppercase tracking-widest">
+              <Activity className="w-3.5 h-3.5 text-primary" /> Anomalies
             </h4>
-            <div className="space-y-4">
+            <div className="space-y-3">
               {[
                 { time: '14:22', msg: 'Spike in p99 Latency detected.', type: 'Warning' },
                 { time: '12:05', msg: 'Unusual traffic from US-West.', type: 'Info' },
                 { time: '09:40', msg: 'Auth token validation retry rate increased.', type: 'Alert' },
               ].map((item, i) => (
-                <div key={i} className="flex gap-3 group cursor-pointer hover:bg-white/5 p-2 rounded-xl transition-colors">
-                  <div className="text-[10px] font-mono text-slate-600 mt-1">{item.time}</div>
-                  <div className="text-xs text-slate-400 group-hover:text-slate-100 transition-colors">{item.msg}</div>
+                <div key={i} className="flex gap-3 group cursor-pointer hover:bg-white/5 p-2.5 rounded-xl transition-all border border-transparent hover:border-white/5">
+                  <div className="text-[9px] font-black text-muted/40 mt-1 uppercase tracking-tighter">{item.time}</div>
+                  <div className="text-xs text-muted/80 font-medium group-hover:text-white transition-colors">{item.msg}</div>
                 </div>
               ))}
             </div>
-            <button className="w-full mt-6 py-2 text-xs font-bold text-primary flex items-center justify-center gap-1 hover:underline">
+            <button className="w-full mt-6 py-2.5 text-xs font-black text-primary flex items-center justify-center gap-1 hover:underline transition-all uppercase tracking-widest">
               View Full Logs <ChevronRight className="w-3 h-3" />
             </button>
           </div>
 
           <motion.div
-            whileHover={{ scale: 1.02 }}
-            className="rounded-2xl p-8 bg-gradient-to-br from-primary via-secondary-purple to-secondary-teal text-white relative overflow-hidden group cursor-pointer"
+            whileHover={{ y: -8 }}
+            className="rounded-3xl p-8 bg-gradient-to-br from-primary via-secondary-purple to-secondary-teal text-white relative overflow-hidden group cursor-pointer shadow-2xl shadow-primary/20"
           >
-            <h3 className="text-xl font-bold mb-2">Automate this report</h3>
-            <p className="text-sm opacity-80 mb-6">Schedule performance runs and get PDF reports in your Slack.</p>
-            <button className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-white/30 transition-all">
+            <h3 className="text-2xl font-black mb-2 tracking-tight">Automate this report</h3>
+            <p className="text-sm font-medium opacity-80 mb-6 leading-relaxed">Schedule performance runs and get PDF reports in Slack.</p>
+            <button className="bg-white/20 backdrop-blur-xl px-5 py-3 rounded-2xl text-[10px] font-black flex items-center gap-2 hover:bg-white/30 transition-all uppercase tracking-widest">
               Set Schedule <ExternalLink className="w-3 h-3" />
             </button>
-            <div className="absolute -bottom-4 -right-4 opacity-10 group-hover:opacity-20 transition-opacity">
-              <Activity size={120} />
+            <div className="absolute -bottom-6 -right-6 opacity-10 group-hover:opacity-20 transition-opacity">
+              <Activity size={140} />
             </div>
           </motion.div>
         </div>
       </div>
+
     </div>
   );
 };

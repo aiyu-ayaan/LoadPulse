@@ -128,49 +128,81 @@ export const TestDetailsPage = () => {
           )}
 
           <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-            <section className="glass-panel h-[330px] rounded-2xl p-6">
-              <h3 className="mb-1 text-lg font-bold text-white">Response Time</h3>
-              <p className="mb-4 text-sm text-slate-400">Latency trend for this specific test.</p>
-              <ResponsiveContainer width="100%" height="78%">
+            <section className="premium-card h-[330px] p-6">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-white tracking-tight">Response Time</h3>
+                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">Latency Trend (ms)</p>
+              </div>
+              <ResponsiveContainer width="100%" height="75%">
                 <AreaChart data={responseTimeData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                  <XAxis dataKey="time" stroke="#8aa0c3" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <YAxis stroke="#8aa0c3" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                  <defs>
+                    <linearGradient id="colorMsDetail" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0.3} />
+                      <stop offset="95%" stopColor="hsl(217, 91%, 60%)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsla(210, 40%, 98%, 0.05)" vertical={false} />
+                  <XAxis dataKey="time" stroke="hsla(210, 40%, 98%, 0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                  <YAxis stroke="hsla(210, 40%, 98%, 0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                   <Tooltip
-                    contentStyle={{ backgroundColor: "#0a1020", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px" }}
-                    itemStyle={{ color: "#e8f0ff", fontSize: "12px" }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="glass-panel border-white/10 px-3 py-2 rounded-xl shadow-2xl">
+                            <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1">{payload[0].payload.time}</p>
+                            <p className="text-sm font-black text-white">{payload[0].value} <span className="text-[10px] text-muted">ms</span></p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
                   />
-                  <Area type="monotone" dataKey="ms" stroke="#3B82F6" fillOpacity={0.25} fill="#3B82F6" strokeWidth={2.5} />
+                  <Area type="monotone" dataKey="ms" stroke="hsl(217, 91%, 60%)" fillOpacity={1} fill="url(#colorMsDetail)" strokeWidth={3} />
                 </AreaChart>
               </ResponsiveContainer>
             </section>
 
-            <section className="glass-panel h-[330px] rounded-2xl p-6">
-              <h3 className="mb-1 text-lg font-bold text-white">Requests Per Second</h3>
-              <p className="mb-4 text-sm text-slate-400">Traffic handled each second in this test.</p>
-              <ResponsiveContainer width="100%" height="78%">
+            <section className="premium-card h-[330px] p-6">
+              <div className="mb-6">
+                <h3 className="text-lg font-bold text-white tracking-tight">Requests Per Second</h3>
+                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">Throughput (RPS)</p>
+              </div>
+              <ResponsiveContainer width="100%" height="75%">
                 <BarChart data={rpsData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
-                  <XAxis dataKey="time" stroke="#8aa0c3" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
-                  <YAxis stroke="#8aa0c3" axisLine={false} tickLine={false} tick={{ fontSize: 12 }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="hsla(210, 40%, 98%, 0.05)" vertical={false} />
+                  <XAxis dataKey="time" stroke="hsla(210, 40%, 98%, 0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
+                  <YAxis stroke="hsla(210, 40%, 98%, 0.4)" axisLine={false} tickLine={false} tick={{ fontSize: 10 }} />
                   <Tooltip
-                    cursor={{ fill: "rgba(255,255,255,0.05)" }}
-                    contentStyle={{ backgroundColor: "#0a1020", border: "1px solid rgba(255,255,255,0.12)", borderRadius: "12px" }}
-                    itemStyle={{ color: "#e8f0ff", fontSize: "12px" }}
+                    cursor={{ fill: "hsla(210, 40%, 98%, 0.05)", radius: 6 }}
+                    content={({ active, payload }) => {
+                      if (active && payload && payload.length) {
+                        return (
+                          <div className="glass-panel border-white/10 px-3 py-2 rounded-xl shadow-2xl">
+                            <p className="text-[10px] font-bold text-muted uppercase tracking-widest mb-1">{payload[0].payload.time}</p>
+                            <p className="text-sm font-black text-white">{payload[0].value} <span className="text-[10px] text-muted">rps</span></p>
+                          </div>
+                        );
+                      }
+                      return null;
+                    }}
                   />
-                  <Bar dataKey="rps" fill="#8B5CF6" radius={[8, 8, 0, 0]} barSize={24} />
+                  <Bar dataKey="rps" fill="hsl(258, 89%, 66%)" radius={[6, 6, 0, 0]} barSize={24} />
                 </BarChart>
               </ResponsiveContainer>
             </section>
           </div>
 
-          <section className="glass-panel rounded-2xl p-6">
-            <h3 className="mb-4 text-lg font-bold text-white">Status Breakdown</h3>
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <section className="premium-card p-6">
+            <h3 className="mb-6 text-lg font-bold text-white tracking-tight">Status Breakdown</h3>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               {statusData.map((item) => (
-                <div key={item.name} className="rounded-xl bg-white/[0.04] px-4 py-3">
-                  <p className="text-sm text-slate-300">{item.name}</p>
-                  <p className="mt-1 text-xl font-bold text-white">{item.value}%</p>
+                <div key={item.name} className="relative overflow-hidden rounded-2xl bg-white/[0.03] border border-white/[0.02] px-5 py-4 group hover:bg-white/[0.06] transition-all">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div className="h-2 w-2 rounded-full" style={{ backgroundColor: item.color }} />
+                    <p className="text-xs font-bold text-muted/60 uppercase tracking-widest">{item.name}</p>
+                  </div>
+                  <p className="text-2xl font-black text-white">{item.value}<span className="text-sm text-muted/40 ml-1">%</span></p>
+                  <div className="absolute -right-2 -bottom-2 h-12 w-12 rounded-full opacity-[0.05] blur-xl" style={{ backgroundColor: item.color }} />
                 </div>
               ))}
             </div>

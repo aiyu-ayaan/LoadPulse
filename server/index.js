@@ -111,6 +111,46 @@ const toRunningTestSummary = (snapshot) => ({
   updatedAt: snapshot.updatedAt ?? new Date().toISOString(),
 });
 
+const toCompiledProjectKpis = (runs, fallbackKpis) => {
+  if (!runs.length) {
+    return fallbackKpis;
+  }
+
+  let totalRequests = 0;
+  let weightedLatencySum = 0;
+  let weightedErrorSum = 0;
+  let throughputSum = 0;
+  let throughputSamples = 0;
+
+  for (const run of runs) {
+    const finalMetrics = run.finalMetrics ?? {};
+    const liveMetrics = run.liveMetrics ?? {};
+
+    const requests = Number(finalMetrics.totalRequests ?? liveMetrics.totalRequests ?? 0);
+    const avgLatency = Number(finalMetrics.avgLatencyMs ?? liveMetrics.avgLatencyMs ?? 0);
+    const errorRate = Number(finalMetrics.errorRatePct ?? liveMetrics.errorRatePct ?? 0);
+    const throughput = Number(finalMetrics.throughputRps ?? liveMetrics.throughputRps ?? 0);
+
+    const weight = Math.max(1, requests);
+    totalRequests += requests;
+    weightedLatencySum += avgLatency * weight;
+    weightedErrorSum += errorRate * weight;
+
+    if (Number.isFinite(throughput) && throughput >= 0) {
+      throughputSum += throughput;
+      throughputSamples += 1;
+    }
+  }
+
+  const denominator = Math.max(1, totalRequests || runs.length);
+  return {
+    totalRequests,
+    avgResponseTimeMs: Number((weightedLatencySum / denominator).toFixed(2)),
+    errorRatePct: Number((weightedErrorSum / denominator).toFixed(2)),
+    throughputRps: Number((throughputSamples > 0 ? throughputSum / throughputSamples : 0).toFixed(2)),
+  };
+};
+
 const toDashboardResponseFromRun = (run) => {
   if (!run) {
     return emptyDashboard();
@@ -611,21 +651,28 @@ app.get("/api/dashboard/overview", async (req, res) => {
   }
 
   const queryFilter = hasProjectFilter ? { projectId } : {};
-  const [liveSnapshots, recentRuns] = await Promise.all([
+  const [liveSnapshots, recentRuns, allRunsForStats] = await Promise.all([
     Promise.resolve(getActiveRunSnapshots(hasProjectFilter ? projectId : undefined)),
     TestRun.find(queryFilter).sort({ createdAt: -1 }).limit(8).lean(),
+    TestRun.find(queryFilter).select({ finalMetrics: 1, liveMetrics: 1 }).lean(),
   ]);
 
   if (liveSnapshots.length > 0) {
+    const livePayload = combineLiveSnapshots(liveSnapshots);
+    const compiledKpis = toCompiledProjectKpis(allRunsForStats, livePayload.kpis);
     return res.json({
-      ...combineLiveSnapshots(liveSnapshots),
+      ...livePayload,
+      kpis: compiledKpis,
       recentRuns: recentRuns.map(toHistoryItem),
     });
   }
 
   const latestRun = recentRuns[0] ?? null;
+  const latestPayload = toDashboardResponseFromRun(latestRun);
+  const compiledKpis = toCompiledProjectKpis(allRunsForStats, latestPayload.kpis);
   return res.json({
-    ...toDashboardResponseFromRun(latestRun),
+    ...latestPayload,
+    kpis: compiledKpis,
     recentRuns: recentRuns.map(toHistoryItem),
   });
 });
