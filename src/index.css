@@ -63,6 +63,7 @@
   body {
     @apply bg-background text-foreground antialiased selection:bg-primary/30;
     margin: 0;
+    caret-color: transparent;
     font-family: 'Plus Jakarta Sans', 'Inter', sans-serif;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
@@ -76,6 +77,15 @@
       linear-gradient(90deg, hsla(210, 40%, 98%, 0.015) 1px, transparent 1px);
     background-size: auto, auto, auto, 40px 40px, 40px 40px;
     background-attachment: fixed;
+  }
+
+  input,
+  textarea,
+  select,
+  [contenteditable="true"],
+  [contenteditable=""],
+  [role="textbox"] {
+    caret-color: auto;
   }
 
   h1, h2, h3, h4 {
