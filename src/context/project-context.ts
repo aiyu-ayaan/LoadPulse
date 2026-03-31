@@ -10,6 +10,7 @@ export interface ProjectContextValue {
   refreshProjects: () => Promise<void>;
   selectProject: (projectId: string) => void;
   createAndSelectProject: (payload: { name: string; baseUrl: string; description?: string }) => Promise<Project>;
+  deleteProjectById: (projectId: string) => Promise<void>;
 }
 
 export const ProjectContext = createContext<ProjectContextValue | null>(null);

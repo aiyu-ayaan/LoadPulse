@@ -65,7 +65,7 @@ export const NewTestPage = () => {
     setSuccessMessage(null);
 
     try {
-      await runTest({
+      const run = await runTest({
         projectId: selectedProject.id,
         name,
         targetUrl,
@@ -75,8 +75,8 @@ export const NewTestPage = () => {
         type,
         region,
       });
-      setSuccessMessage("Test started. Live results are now visible on your dashboard.");
-      window.setTimeout(() => navigate("/dashboard"), 800);
+      setSuccessMessage("Test started. Opening test details...");
+      navigate(`/tests/${run.id}`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to run test.");
     } finally {

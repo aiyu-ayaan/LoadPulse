@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createProject, fetchProjects, type Project } from "../lib/api";
+import { createProject, deleteProject, fetchProjects, type Project } from "../lib/api";
 import { ProjectContext, type ProjectContextValue } from "./project-context";
 
 const STORAGE_KEY = "loadpulse.selectedProjectId";
@@ -68,6 +68,18 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
     [],
   );
 
+  const deleteProjectById = useCallback(
+    async (projectId: string) => {
+      await deleteProject(projectId);
+      setProjects((previousProjects) => previousProjects.filter((project) => project.id !== projectId));
+      if (selectedProjectId === projectId) {
+        setSelectedProjectId(null);
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    },
+    [selectedProjectId],
+  );
+
   const value = useMemo<ProjectContextValue>(
     () => ({
       projects,
@@ -78,8 +90,9 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       refreshProjects,
       selectProject,
       createAndSelectProject,
+      deleteProjectById,
     }),
-    [projects, selectedProject, selectedProjectId, isLoading, error, refreshProjects, selectProject, createAndSelectProject],
+    [projects, selectedProject, selectedProjectId, isLoading, error, refreshProjects, selectProject, createAndSelectProject, deleteProjectById],
   );
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

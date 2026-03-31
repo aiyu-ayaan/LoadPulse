@@ -522,6 +522,36 @@ app.post("/api/projects", async (req, res) => {
   });
 });
 
+app.delete("/api/projects/:id", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const project = await Project.findById(projectId).lean();
+  if (!project) {
+    return res.status(404).json({ error: "Project not found." });
+  }
+
+  const activeCount = await TestRun.countDocuments({
+    projectId,
+    status: { $in: ["queued", "running"] },
+  });
+  if (activeCount > 0) {
+    return res.status(409).json({
+      error: "Stop or wait for running tests before deleting this project.",
+    });
+  }
+
+  const deletedRuns = await TestRun.deleteMany({ projectId });
+  await Project.deleteOne({ _id: projectId });
+
+  return res.json({
+    success: true,
+    deletedRuns: deletedRuns.deletedCount ?? 0,
+  });
+});
+
 app.post("/api/tests/run", async (req, res) => {
   const projectId = String(req.body?.projectId ?? "").trim();
   if (!isValidObjectId(projectId)) {

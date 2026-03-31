@@ -1,17 +1,20 @@
 import { useState } from "react";
-import { Globe, FolderKanban, Play, Activity, CheckCircle2, PlusCircle, Loader2 } from "lucide-react";
+import { Globe, FolderKanban, Play, Activity, CheckCircle2, PlusCircle, Loader2, Trash2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 
 export const ProjectsPage = () => {
   const navigate = useNavigate();
-  const { projects, selectedProjectId, selectProject, createAndSelectProject, isLoading, error, refreshProjects } = useProjects();
+  const { projects, selectedProjectId, selectProject, createAndSelectProject, deleteProjectById, isLoading, error, refreshProjects } = useProjects();
 
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("https://");
   const [description, setDescription] = useState("");
   const [saving, setSaving] = useState(false);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; name: string } | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
 
   const handleCreateProject = async () => {
@@ -27,6 +30,22 @@ export const ProjectsPage = () => {
       setFormError(requestError instanceof Error ? requestError.message : "Unable to create project.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteProject = async () => {
+    if (!projectToDelete) {
+      return;
+    }
+    setFormError(null);
+    setDeletingProjectId(projectToDelete.id);
+    try {
+      await deleteProjectById(projectToDelete.id);
+      setProjectToDelete(null);
+    } catch (requestError) {
+      setFormError(requestError instanceof Error ? requestError.message : "Unable to delete project.");
+    } finally {
+      setDeletingProjectId(null);
     }
   };
 
@@ -175,6 +194,17 @@ export const ProjectsPage = () => {
                       <Activity className="h-3.5 w-3.5" />
                       View Dashboard
                     </button>
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setProjectToDelete({ id: project.id, name: project.name });
+                      }}
+                      disabled={deletingProjectId === project.id}
+                      className="inline-flex items-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-200 transition hover:bg-rose-500/20 disabled:opacity-60"
+                    >
+                      {deletingProjectId === project.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      Delete
+                    </button>
                   </div>
                 </button>
               ))}
@@ -195,6 +225,21 @@ export const ProjectsPage = () => {
       <button onClick={() => void refreshProjects()} className="text-xs text-slate-400 hover:text-white">
         Refresh project list
       </button>
+
+      <ConfirmDialog
+        isOpen={Boolean(projectToDelete)}
+        title={`Delete "${projectToDelete?.name ?? "Project"}"?`}
+        description="This will permanently remove the project and all its test history."
+        confirmText="Delete Project"
+        cancelText="Keep Project"
+        isLoading={deletingProjectId !== null}
+        onConfirm={() => void handleDeleteProject()}
+        onCancel={() => {
+          if (deletingProjectId === null) {
+            setProjectToDelete(null);
+          }
+        }}
+      />
     </div>
   );
 };

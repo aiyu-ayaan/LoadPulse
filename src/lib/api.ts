@@ -161,6 +161,11 @@ export const createProject = (payload: { name: string; baseUrl: string; descript
     body: JSON.stringify(payload),
   });
 
+export const deleteProject = (id: string) =>
+  request<{ success: boolean; deletedRuns: number }>(`/api/projects/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+
 export const fetchDashboardOverview = (projectId: string) =>
   request<DashboardOverview>(`/api/dashboard/overview?projectId=${encodeURIComponent(projectId)}`);
 
