@@ -349,8 +349,8 @@ export const SettingsPage = () => {
         <p className="text-sm text-slate-400">Manage your profile, security, and team access from one place.</p>
       </div>
 
-      <section className="grid grid-cols-1 gap-8 xl:grid-cols-[260px,1fr]">
-        <aside className="glass-panel rounded-3xl border border-white/10 p-4">
+      <section className="grid grid-cols-1 gap-8 lg:grid-cols-12">
+        <aside className="glass-panel rounded-3xl border border-white/10 p-4 lg:col-span-4 lg:sticky lg:top-24 lg:self-start xl:col-span-3">
           <div className="mb-5 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <UserAvatar username={user.username} avatarDataUrl={user.avatarDataUrl} size="md" />
             <div className="min-w-0">
@@ -365,9 +365,8 @@ export const SettingsPage = () => {
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${
-                  activeTab === tab.key ? "bg-primary/15 text-primary border border-primary/25" : "text-slate-400 hover:bg-white/[0.06] hover:text-white"
-                }`}
+                className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-medium transition ${activeTab === tab.key ? "bg-primary/15 text-primary border border-primary/25" : "text-slate-400 hover:bg-white/[0.06] hover:text-white"
+                  }`}
               >
                 <tab.icon className="h-4 w-4" />
                 {tab.label}
@@ -376,7 +375,7 @@ export const SettingsPage = () => {
           </div>
         </aside>
 
-        <div className="space-y-6">
+        <div className="min-w-0 space-y-6 lg:col-span-8 xl:col-span-9">
           {activeTab === "profile" && (
             <section className="glass-panel rounded-3xl border border-white/10 p-6">
               <div className="mb-6">
@@ -386,9 +385,8 @@ export const SettingsPage = () => {
 
               {(profileError || profileMessage) && (
                 <div
-                  className={`mb-5 rounded-2xl px-4 py-3 text-sm ${
-                    profileError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                  }`}
+                  className={`mb-5 rounded-2xl px-4 py-3 text-sm ${profileError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    }`}
                 >
                   {profileError ?? profileMessage}
                 </div>
@@ -463,9 +461,8 @@ export const SettingsPage = () => {
 
                 {(securityError || securityMessage) && (
                   <div
-                    className={`mb-5 rounded-2xl px-4 py-3 text-sm ${
-                      securityError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                    }`}
+                    className={`mb-5 rounded-2xl px-4 py-3 text-sm ${securityError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                      }`}
                   >
                     {securityError ?? securityMessage}
                   </div>
@@ -589,9 +586,8 @@ export const SettingsPage = () => {
             <section className="space-y-6">
               {(accessError || accessMessage) && (
                 <div
-                  className={`rounded-2xl px-4 py-3 text-sm ${
-                    accessError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                  }`}
+                  className={`rounded-2xl px-4 py-3 text-sm ${accessError ? "border border-rose-500/30 bg-rose-500/10 text-rose-200" : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    }`}
                 >
                   {accessError ?? accessMessage}
                 </div>
