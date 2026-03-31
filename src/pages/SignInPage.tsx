@@ -95,8 +95,8 @@ export const SignInPage = () => {
             {isTwoFactorStep
               ? `Open your authenticator app for ${challengeIdentity?.username ?? "this account"} and enter the 6-digit code.`
               : needsSetup
-              ? "First launch detected. Create the first admin account to finish setup."
-              : "Use your team credentials to access projects and run tests."}
+                ? "First launch detected. Create the first admin account to finish setup."
+                : "Use your team credentials to access projects and run tests."}
           </p>
         </div>
 
