@@ -195,7 +195,10 @@ export const TestHistoryPage = () => {
                     <td className="px-6 py-4 font-mono text-slate-300">{toLatencyLabel(test.avgLatencyMs)}</td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="h-9 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-2">
+                        <button
+                          onClick={() => navigate(`/tests/${test.id}`)}
+                          className="h-9 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-2"
+                        >
                           <ExternalLink className="w-3.5 h-3.5" /> View
                         </button>
                         <button

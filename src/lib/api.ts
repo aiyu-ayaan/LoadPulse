@@ -25,6 +25,17 @@ export interface DashboardKpis {
   throughputRps: number;
 }
 
+export interface RunningTestSummary {
+  id: string;
+  name: string;
+  status: string;
+  totalRequests: number;
+  avgResponseTimeMs: number;
+  errorRatePct: number;
+  throughputRps: number;
+  updatedAt: string;
+}
+
 export interface DashboardOverview {
   source: "live" | "latest" | "empty";
   currentRun: {
@@ -37,6 +48,7 @@ export interface DashboardOverview {
   rpsData: Array<{ time: string; rps: number }>;
   statusData: Array<{ name: string; value: number; color: string }>;
   activeRunCount: number;
+  runningTests: RunningTestSummary[];
   recentRuns: TestHistoryItem[];
 }
 
@@ -73,6 +85,42 @@ export interface RunTestPayload {
   region: string;
   vus: number;
   duration: string;
+  script: string;
+}
+
+export interface TestRunDetail extends TestHistoryItem {
+  finalMetrics: {
+    totalRequests: number;
+    avgLatencyMs: number;
+    p95LatencyMs: number;
+    p99LatencyMs: number;
+    errorRatePct: number;
+    throughputRps: number;
+    checksPassed: number;
+    checksFailed: number;
+    statusCodes: {
+      ok2xx: number;
+      client4xx: number;
+      server5xx: number;
+      other: number;
+    };
+  } | null;
+  liveMetrics: {
+    totalRequests: number;
+    avgLatencyMs: number;
+    errorRatePct: number;
+    throughputRps: number;
+    lastUpdatedAt: string | null;
+    statusCodes: {
+      ok2xx: number;
+      client4xx: number;
+      server5xx: number;
+      other: number;
+    };
+    responseTimeSeries: Array<{ time: string; value: number; timestamp: string }>;
+    rpsSeries: Array<{ time: string; value: number; timestamp: string }>;
+  } | null;
+  errorMessage: string | null;
   script: string;
 }
 
@@ -140,3 +188,6 @@ export const deleteTestRun = (id: string) =>
   request<{ success: boolean }>(`/api/tests/${encodeURIComponent(id)}`, {
     method: "DELETE",
   });
+
+export const fetchTestRun = (id: string) =>
+  request<{ data: TestRunDetail }>(`/api/tests/${encodeURIComponent(id)}`);

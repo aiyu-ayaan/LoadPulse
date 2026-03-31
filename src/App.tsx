@@ -8,6 +8,7 @@ import { IntegrationsPage } from './pages/IntegrationsPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectRequired } from './components/ProjectRequired';
+import { TestDetailsPage } from './pages/TestDetailsPage';
 
 function App() {
   return (
@@ -19,6 +20,7 @@ function App() {
           <Route path="/dashboard" element={<ProjectRequired><DashboardPage /></ProjectRequired>} />
           <Route path="/new-test" element={<ProjectRequired><NewTestPage /></ProjectRequired>} />
           <Route path="/history" element={<ProjectRequired><TestHistoryPage /></ProjectRequired>} />
+          <Route path="/tests/:testId" element={<ProjectRequired><TestDetailsPage /></ProjectRequired>} />
           <Route path="/reports" element={<ProjectRequired><ReportsPage /></ProjectRequired>} />
           <Route path="/integrations" element={<ProjectRequired><IntegrationsPage /></ProjectRequired>} />
           <Route path="/settings" element={<ProjectRequired><SettingsPage /></ProjectRequired>} />

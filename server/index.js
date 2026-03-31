@@ -60,6 +60,7 @@ const emptyDashboard = () => ({
     other: 0,
   },
   activeRunCount: 0,
+  runningTests: [],
 });
 
 const toStatusData = (statusCounts) => {
@@ -97,6 +98,17 @@ const toHistoryItem = (run) => ({
   avgLatencyMs: run.finalMetrics?.avgLatencyMs ?? run.liveMetrics?.avgLatencyMs ?? null,
   errorRatePct: run.finalMetrics?.errorRatePct ?? run.liveMetrics?.errorRatePct ?? null,
   totalRequests: run.finalMetrics?.totalRequests ?? run.liveMetrics?.totalRequests ?? null,
+});
+
+const toRunningTestSummary = (snapshot) => ({
+  id: snapshot.currentRun.id,
+  name: snapshot.currentRun.name,
+  status: snapshot.currentRun.status,
+  totalRequests: snapshot.kpis.totalRequests,
+  avgResponseTimeMs: snapshot.kpis.avgResponseTimeMs,
+  errorRatePct: snapshot.kpis.errorRatePct,
+  throughputRps: snapshot.kpis.throughputRps,
+  updatedAt: snapshot.updatedAt ?? new Date().toISOString(),
 });
 
 const toDashboardResponseFromRun = (run) => {
@@ -137,6 +149,21 @@ const toDashboardResponseFromRun = (run) => {
     statusData: toStatusData(statusCounts),
     statusCounts,
     activeRunCount: run.status === "running" ? 1 : 0,
+    runningTests:
+      run.status === "running"
+        ? [
+            {
+              id: run._id.toString(),
+              name: run.name,
+              status: run.status,
+              totalRequests: liveMetrics.totalRequests ?? 0,
+              avgResponseTimeMs: liveMetrics.avgLatencyMs ?? 0,
+              errorRatePct: liveMetrics.errorRatePct ?? 0,
+              throughputRps: liveMetrics.throughputRps ?? 0,
+              updatedAt: liveMetrics.lastUpdatedAt ?? run.updatedAt ?? new Date().toISOString(),
+            },
+          ]
+        : [],
   };
 };
 
@@ -229,6 +256,7 @@ const combineLiveSnapshots = (snapshots) => {
     statusData: toStatusData(statusCounts),
     statusCounts,
     activeRunCount: snapshots.length,
+    runningTests: snapshots.map(toRunningTestSummary),
     updatedAt: new Date().toISOString(),
   };
 };

@@ -13,9 +13,9 @@ import {
   Cell,
 } from "recharts";
 import { KpiCard } from "../components/KpiCard";
-import { Users, Timer, AlertCircle, BarChart3, Activity, Radar, CheckCircle2, ListChecks } from "lucide-react";
+import { Users, Timer, AlertCircle, BarChart3, Activity, Radar, CheckCircle2, ListChecks, ExternalLink } from "lucide-react";
 import { motion } from "framer-motion";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { EmptyState } from "../components/EmptyState";
@@ -45,6 +45,7 @@ const fallbackOverview: DashboardOverview = {
     { name: "5xx Server", value: 0, color: "#F43F5E" },
   ],
   activeRunCount: 0,
+  runningTests: [],
   recentRuns: [],
 };
 
@@ -81,6 +82,7 @@ export const DashboardPage = () => {
   const [overview, setOverview] = useState<DashboardOverview>(fallbackOverview);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshTimeoutRef = useRef<number | null>(null);
 
   const loadOverview = useCallback(async () => {
     if (!selectedProject) {
@@ -113,39 +115,43 @@ export const DashboardPage = () => {
       transports: ["websocket", "polling"],
     });
 
-    socket.on("live:init", (payload: { activeRuns?: LiveSnapshot[] }) => {
-      const projectSnapshots = (payload?.activeRuns ?? []).filter((item) => item.projectId === selectedProject.id);
-      const first = projectSnapshots[0];
-      if (!first) {
+    const scheduleRefresh = () => {
+      if (refreshTimeoutRef.current !== null) {
         return;
       }
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        refreshTimeoutRef.current = null;
+        void loadOverview();
+      }, 300);
+    };
 
-      setOverview((previousState) => ({
-        ...previousState,
-        ...first,
-      }));
-      setIsLoading(false);
+    socket.on("live:init", (payload: { activeRuns?: LiveSnapshot[] }) => {
+      const projectHasActiveRun = (payload?.activeRuns ?? []).some((item) => item.projectId === selectedProject.id);
+      if (!projectHasActiveRun) {
+        return;
+      }
+      scheduleRefresh();
     });
 
     socket.on("test:live:update", (snapshot: LiveSnapshot) => {
       if (snapshot.projectId !== selectedProject.id) {
         return;
       }
-      setOverview((previousState) => ({
-        ...previousState,
-        ...snapshot,
-      }));
-      setIsLoading(false);
+      scheduleRefresh();
     });
 
     socket.on("test:run:completed", (eventPayload: { projectId?: string }) => {
       if (eventPayload?.projectId && eventPayload.projectId !== selectedProject.id) {
         return;
       }
-      void loadOverview();
+      scheduleRefresh();
     });
 
     return () => {
+      if (refreshTimeoutRef.current !== null) {
+        window.clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
       socket.close();
     };
   }, [loadOverview, selectedProject]);
@@ -197,6 +203,34 @@ export const DashboardPage = () => {
       <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
         <span className={`font-semibold ${insight.tone}`}>{insight.title}:</span> {insight.description}
       </div>
+
+      {overview.runningTests.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-bold text-white">Running Tests (Click to View Details)</h2>
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {overview.runningTests.map((test) => (
+              <button
+                key={test.id}
+                onClick={() => navigate(`/tests/${test.id}`)}
+                className="glass-panel rounded-2xl border border-primary/30 bg-primary/10 p-4 text-left transition hover:border-primary/50 hover:bg-primary/15"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-base font-semibold text-white">{test.name}</p>
+                    <p className="text-xs text-slate-300">Requests: {test.totalRequests}</p>
+                  </div>
+                  <ExternalLink className="h-4 w-4 text-primary" />
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-200">
+                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">Avg: {Math.round(test.avgResponseTimeMs)}ms</div>
+                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">Err: {test.errorRatePct.toFixed(2)}%</div>
+                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">RPS: {test.throughputRps.toFixed(1)}</div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       {isLoading ? (
         <div className="space-y-6">
