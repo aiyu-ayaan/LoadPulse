@@ -11,7 +11,11 @@ import { ProjectRequired } from './components/ProjectRequired';
 import { TestDetailsPage } from './pages/TestDetailsPage';
 import { SignInPage } from './pages/SignInPage';
 import { AdminSignInPage } from './pages/AdminSignInPage';
-import { AdminPage } from './pages/AdminPage';
+import { AdminConsoleLayout } from './pages/admin/AdminConsoleLayout';
+import { AdminAccountsPage } from './pages/admin/AdminAccountsPage';
+import { AdminQueuePage } from './pages/admin/AdminQueuePage';
+import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
+import { AdminAboutPage } from './pages/admin/AdminAboutPage';
 import { useAuth } from './context/useAuth';
 
 const RequireAuth = ({ children }: { children: ReactElement }) => {
@@ -64,10 +68,16 @@ function App() {
         <Route
           path="/admin/signin"
           element={
-            isAuthenticated && user?.isAdmin ? <Navigate to="/admin" replace /> : <AdminSignInPage />
+            isAuthenticated && user?.isAdmin ? <Navigate to="/admin/accounts" replace /> : <AdminSignInPage />
           }
         />
-        <Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
+        <Route path="/admin" element={<RequireAdmin><AdminConsoleLayout /></RequireAdmin>}>
+          <Route index element={<Navigate to="/admin/accounts" replace />} />
+          <Route path="accounts" element={<AdminAccountsPage />} />
+          <Route path="queue" element={<AdminQueuePage />} />
+          <Route path="settings" element={<AdminSettingsPage />} />
+          <Route path="about" element={<AdminAboutPage />} />
+        </Route>
         <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />

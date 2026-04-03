@@ -94,7 +94,7 @@ export const AdminSignInPage = () => {
       void hydrateSessionFromToken(token)
         .then(async () => {
           await ensureAdminAccess();
-          navigate("/admin", { replace: true });
+          navigate("/admin/accounts", { replace: true });
         })
         .catch((requestError) => {
           setError(requestError instanceof Error ? requestError.message : "Unable to finish sign-in.");
@@ -132,7 +132,7 @@ export const AdminSignInPage = () => {
       if (pendingToken) {
         await completeTwoFactorSignIn(pendingToken, twoFactorCode);
         await ensureAdminAccess();
-        navigate("/admin", { replace: true });
+        navigate("/admin/accounts", { replace: true });
         return;
       }
 
@@ -145,7 +145,7 @@ export const AdminSignInPage = () => {
         }
         await signUpWithPassword(username, email, password);
         await ensureAdminAccess();
-        navigate("/admin", { replace: true });
+        navigate("/admin/accounts", { replace: true });
         return;
       }
 
@@ -162,7 +162,7 @@ export const AdminSignInPage = () => {
         throw new Error("Only admin users can access the admin panel.");
       }
 
-      navigate("/admin", { replace: true });
+      navigate("/admin/accounts", { replace: true });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to continue.");
     } finally {
