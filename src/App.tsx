@@ -83,6 +83,7 @@ function App() {
         <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
           <Route path="/projects/:projectId/dashboard" element={<ProjectRequired><DashboardPage /></ProjectRequired>} />
           <Route path="/projects/:projectId/new-test" element={<ProjectRequired><NewTestPage /></ProjectRequired>} />
           <Route path="/projects/:projectId/history" element={<ProjectRequired><TestHistoryPage /></ProjectRequired>} />

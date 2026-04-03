@@ -186,6 +186,12 @@ export const SettingsPage = () => {
   }, [activeTab, loadProjectAccess]);
 
   useEffect(() => {
+    if (!selectedProject && activeTab === "access") {
+      setActiveTab("profile");
+    }
+  }, [selectedProject, activeTab]);
+
+  useEffect(() => {
     if (activeTab !== "access") {
       return;
     }
@@ -392,7 +398,7 @@ export const SettingsPage = () => {
   const tabs = [
     { key: "profile" as const, label: "User Settings", icon: UserCog },
     { key: "security" as const, label: "Security", icon: ShieldCheck },
-    { key: "access" as const, label: "Access Management", icon: Users },
+    ...(selectedProject ? [{ key: "access" as const, label: "Access Management", icon: Users }] : []),
   ];
 
   return (
@@ -400,7 +406,9 @@ export const SettingsPage = () => {
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
         <p className="text-sm text-slate-400 md:text-base">
-          Manage your profile, secure your account, and share the currently selected project with the right people.
+          {selectedProject
+            ? "Manage your profile, secure your account, and share the currently selected project with the right people."
+            : "Manage your profile and secure your account. Select a project to access sharing controls."}
         </p>
       </div>
 

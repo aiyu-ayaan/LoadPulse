@@ -21,6 +21,9 @@ export const getTitleFromPathname = (pathname: string) => {
   if (pathname === "/projects") {
     return "Projects";
   }
+  if (pathname === "/settings") {
+    return "Settings";
+  }
 
   const section = getSectionFromPathname(pathname);
   if (section === "dashboard") {

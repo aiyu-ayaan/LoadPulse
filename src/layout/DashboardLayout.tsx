@@ -197,7 +197,7 @@ export const DashboardLayout = () => {
                 if (selectedProjectId) {
                   navigate(buildProjectSectionPath(selectedProjectId, "settings"));
                 } else {
-                  navigate("/projects");
+                  navigate("/settings");
                 }
               }}
               className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"
