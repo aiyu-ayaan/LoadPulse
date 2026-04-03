@@ -1079,13 +1079,13 @@ app.post("/api/auth/signup", async (req, res) => {
     return res.status(409).json({ error: "Username or email is already in use." });
   }
 
-  const userCount = await User.countDocuments({});
+  const [userCount, adminCount] = await Promise.all([User.countDocuments({}), User.countDocuments({ isAdmin: true })]);
   const passwordHash = await bcrypt.hash(value.password, 12);
   const user = await User.create({
     username: value.username,
     email: value.email,
     passwordHash,
-    isAdmin: userCount === 0,
+    isAdmin: userCount === 0 || adminCount === 0,
     isActive: true,
   });
 
@@ -1105,9 +1105,9 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     return res.status(409).json({ error: "Username or email is already in use." });
   }
 
-  const existingUsers = await User.exists({});
-  if (existingUsers) {
-    return res.status(409).json({ error: "Setup is already complete. Sign in with an existing account." });
+  const existingAdmin = await User.exists({ isAdmin: true });
+  if (existingAdmin) {
+    return res.status(409).json({ error: "An admin account already exists. Sign in with an existing admin." });
   }
 
   const passwordHash = await bcrypt.hash(value.password, 12);
@@ -1282,7 +1282,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
     }
 
     if (!user) {
-      const userCount = await User.countDocuments({});
+      const [userCount, adminCount] = await Promise.all([User.countDocuments({}), User.countDocuments({ isAdmin: true })]);
       const username = await ensureUniqueUsername(githubUsername, email.split("@")[0], profile?.name);
       user = await User.create({
         username,
@@ -1290,7 +1290,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
         githubId,
         githubUsername,
         avatarDataUrl: avatarUrl,
-        isAdmin: userCount === 0,
+        isAdmin: userCount === 0 || adminCount === 0,
         isActive: true,
       });
     } else {
