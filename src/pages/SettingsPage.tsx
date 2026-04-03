@@ -472,8 +472,8 @@ export const SettingsPage = () => {
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
                   className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${activeTab === tab.key
-                      ? "border border-primary/35 bg-primary/15 text-white"
-                      : "border border-transparent text-slate-300 hover:bg-white/[0.05]"
+                    ? "border border-primary/35 bg-primary/15 text-white"
+                    : "border border-transparent text-slate-300 hover:bg-white/[0.05]"
                     }`}
                 >
                   <Icon className="h-4 w-4" />
@@ -495,8 +495,8 @@ export const SettingsPage = () => {
               {(profileError || profileMessage) && (
                 <div
                   className={`mb-4 rounded-2xl px-4 py-3 text-sm ${profileError
-                      ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
-                      : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                    : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                     }`}
                 >
                   {profileError || profileMessage}
@@ -608,8 +608,8 @@ export const SettingsPage = () => {
                       {(passwordError || passwordMessage) && (
                         <div
                           className={`rounded-2xl px-4 py-3 text-sm ${passwordError
-                              ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
-                              : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                            ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                            : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                             }`}
                         >
                           {passwordError || passwordMessage}
@@ -651,8 +651,8 @@ export const SettingsPage = () => {
                   {(twoFactorError || twoFactorMessage) && (
                     <div
                       className={`mt-4 rounded-2xl px-4 py-3 text-sm ${twoFactorError
-                          ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
-                          : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                        ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                        : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                         }`}
                     >
                       {twoFactorError || twoFactorMessage}
@@ -755,8 +755,8 @@ export const SettingsPage = () => {
               {(accessError || accessMessage) && (
                 <div
                   className={`mb-4 rounded-2xl px-4 py-3 text-sm ${accessError
-                      ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
-                      : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+                    ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+                    : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
                     }`}
                 >
                   {accessError || accessMessage}

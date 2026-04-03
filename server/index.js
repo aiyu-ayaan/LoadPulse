@@ -320,17 +320,17 @@ const toDashboardResponseFromRun = (run) => {
     runningTests:
       run.status === "running"
         ? [
-            {
-              id: run._id.toString(),
-              name: run.name,
-              status: run.status,
-              totalRequests: liveMetrics.totalRequests ?? 0,
-              avgResponseTimeMs: liveMetrics.avgLatencyMs ?? 0,
-              errorRatePct: liveMetrics.errorRatePct ?? 0,
-              throughputRps: liveMetrics.throughputRps ?? 0,
-              updatedAt: liveMetrics.lastUpdatedAt ?? run.updatedAt ?? new Date().toISOString(),
-            },
-          ]
+          {
+            id: run._id.toString(),
+            name: run.name,
+            status: run.status,
+            totalRequests: liveMetrics.totalRequests ?? 0,
+            avgResponseTimeMs: liveMetrics.avgLatencyMs ?? 0,
+            errorRatePct: liveMetrics.errorRatePct ?? 0,
+            throughputRps: liveMetrics.throughputRps ?? 0,
+            updatedAt: liveMetrics.lastUpdatedAt ?? run.updatedAt ?? new Date().toISOString(),
+          },
+        ]
         : [],
   };
 };
@@ -409,10 +409,10 @@ const combineLiveSnapshots = (snapshots) => {
       snapshots.length === 1
         ? snapshots[0].currentRun
         : {
-            id: "multiple",
-            name: `${snapshots.length} tests running`,
-            status: "running",
-          },
+          id: "multiple",
+          name: `${snapshots.length} tests running`,
+          status: "running",
+        },
     kpis: {
       totalRequests,
       avgResponseTimeMs,
@@ -1207,10 +1207,10 @@ const getProjectStatsMap = async (projectIds = null) => {
     : [];
   const matchStage = hasProjectFilter
     ? {
-        $match: {
-          projectId: { $in: safeProjectIds },
-        },
-      }
+      $match: {
+        projectId: { $in: safeProjectIds },
+      },
+    }
     : null;
 
   const [runStats, latestRuns] = await Promise.all([
@@ -2252,8 +2252,8 @@ app.get("/api/projects/:id/access", async (req, res) => {
   const sharedEmails = [...new Set((project.accessList ?? []).map((entry) => normalizeEmail(entry.email)).filter(Boolean))];
   const linkedUsers = sharedEmails.length
     ? await User.find({ email: { $in: sharedEmails } })
-        .select({ username: 1, email: 1, avatarDataUrl: 1, githubId: 1 })
-        .lean()
+      .select({ username: 1, email: 1, avatarDataUrl: 1, githubId: 1 })
+      .lean()
     : [];
   const usersByEmail = new Map(linkedUsers.map((user) => [normalizeEmail(user.email), user]));
 
