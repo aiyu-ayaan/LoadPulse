@@ -90,6 +90,25 @@ export const DashboardLayout = () => {
     return <Info className="h-4 w-4 text-primary" />;
   };
 
+  const getRailNavClass = (isActive: boolean) => {
+    const shape = isCollapsed
+      ? "mx-auto h-11 w-11 justify-center rounded-2xl px-0"
+      : "w-full gap-2.5 rounded-xl px-3 py-2.5";
+    const state = isActive
+      ? isCollapsed
+        ? "bg-primary/20 text-white shadow-[0_0_0_1px_rgba(59,130,246,0.35)]"
+        : "bg-white/12 text-white"
+      : isCollapsed
+        ? "text-slate-400 hover:bg-white/10 hover:text-white"
+        : "text-slate-300 hover:bg-white/6 hover:text-white";
+
+    return `group flex items-center text-sm transition ${shape} ${state}`;
+  };
+
+  const railButtonClass = isCollapsed
+    ? "mx-auto flex h-11 w-11 items-center justify-center rounded-2xl px-0 text-slate-400 transition hover:bg-white/10 hover:text-white"
+    : "flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-slate-300 transition hover:bg-white/6 hover:text-white";
+
   return (
     <div className="min-h-screen bg-[#0f1011] text-slate-100">
       {isMobileSidebarOpen && (
@@ -102,13 +121,12 @@ export const DashboardLayout = () => {
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-white/10 bg-[#171819] p-3 transition-all duration-200 ${
-          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
-        } ${isCollapsed ? "w-[86px] lg:translate-x-0" : "w-[250px] lg:translate-x-0"}`}
+        className={`fixed inset-y-0 left-0 z-40 flex flex-col border-r border-white/10 bg-[#171819] p-3 transition-all duration-200 ${isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+          } ${isCollapsed ? "w-[86px] lg:translate-x-0" : "w-[250px] lg:translate-x-0"}`}
       >
-        <div className="mb-4 flex items-center justify-between gap-2">
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="grid h-8 w-8 shrink-0 place-content-center rounded-md border border-white/15 bg-white/5">
+        <div className={`mb-4 flex ${isCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2"}`}>
+          <div className={`flex min-w-0 items-center ${isCollapsed ? "" : "gap-2"}`}>
+            <div className={`grid h-9 w-9 shrink-0 place-content-center rounded-xl border ${isCollapsed ? "border-primary/35 bg-primary/15" : "border-white/15 bg-white/5"}`}>
               <LayoutDashboard className="h-4 w-4" />
             </div>
             {!isCollapsed && (
@@ -119,7 +137,7 @@ export const DashboardLayout = () => {
             )}
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className={`flex items-center gap-1 ${isCollapsed ? "w-full justify-center" : ""}`}>
             <button
               type="button"
               onClick={() => setIsCollapsed((previous) => !previous)}
@@ -140,15 +158,12 @@ export const DashboardLayout = () => {
           </div>
         </div>
 
-        <nav className="space-y-1.5">
+        <nav className={`space-y-2 ${isCollapsed ? "pt-1" : ""}`}>
           {!selectedProjectId && (
             <NavLink
               to="/projects"
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${
-                  isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
-                }`
-              }
+              className={({ isActive }) => getRailNavClass(isActive)}
+              title={isCollapsed ? "Projects" : undefined}
             >
               <FolderKanban className="h-4 w-4 shrink-0" />
               {!isCollapsed && "Projects"}
@@ -159,7 +174,8 @@ export const DashboardLayout = () => {
             <button
               type="button"
               onClick={() => navigate("/projects")}
-              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm text-slate-300 transition hover:bg-white/6 hover:text-white"
+              className={railButtonClass}
+              title={isCollapsed ? "Back to Projects" : undefined}
             >
               <ArrowLeft className="h-4 w-4 shrink-0" />
               {!isCollapsed && "Back To Projects"}
@@ -171,11 +187,8 @@ export const DashboardLayout = () => {
               <NavLink
                 key={item.section}
                 to={buildProjectSectionPath(selectedProjectId, item.section)}
-                className={({ isActive }) =>
-                  `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${
-                    isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
-                  }`
-                }
+                className={({ isActive }) => getRailNavClass(isActive)}
+                title={isCollapsed ? item.label : undefined}
               >
                 <item.icon className="h-4 w-4 shrink-0" />
                 {!isCollapsed && item.label}
@@ -183,7 +196,7 @@ export const DashboardLayout = () => {
             ))}
         </nav>
 
-        <div className="mt-auto space-y-3">
+        <div className={`mt-auto ${isCollapsed ? "space-y-2" : "space-y-3"}`}>
           {!isCollapsed && (
             <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Selected Project</p>
@@ -192,7 +205,7 @@ export const DashboardLayout = () => {
             </div>
           )}
 
-          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-2.5">
+          <div className={`rounded-xl border border-white/10 bg-white/[0.03] ${isCollapsed ? "p-2" : "p-2.5"}`}>
             <button
               type="button"
               onClick={() => {
@@ -202,17 +215,29 @@ export const DashboardLayout = () => {
                   navigate("/settings");
                 }
               }}
-              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"
+              className={isCollapsed
+                ? "mx-auto flex h-11 w-11 items-center justify-center rounded-2xl text-slate-200 transition hover:bg-white/10"
+                : "flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"}
+              aria-label="User settings"
+              title={isCollapsed ? "User settings" : undefined}
             >
-              <UserCircle2 className="h-4 w-4 shrink-0" />
-              {!isCollapsed && "User"}
+              {isCollapsed ? (
+                <UserAvatar username={user?.username ?? "User"} avatarDataUrl={user?.avatarDataUrl} size="sm" />
+              ) : (
+                <>
+                  <UserCircle2 className="h-4 w-4 shrink-0" />
+                  User
+                </>
+              )}
             </button>
 
             <button
               onClick={signOut}
-              className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"
+              className={isCollapsed
+                ? "mx-auto mt-1 flex h-11 w-11 items-center justify-center rounded-2xl text-slate-200 transition hover:bg-white/10"
+                : "mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-200 transition hover:bg-white/10"}
               aria-label="Sign out"
-              title="Sign out"
+              title={isCollapsed ? "Sign out" : undefined}
             >
               <LogOut className="h-4 w-4 shrink-0" />
               {!isCollapsed && "Sign out"}
@@ -243,122 +268,123 @@ export const DashboardLayout = () => {
       </button>
 
       <div className={`min-h-screen transition-[margin] duration-200 ${isCollapsed ? "lg:ml-[86px]" : "lg:ml-[250px]"}`}>
-        <div className="fixed right-3 top-3 z-20" ref={notificationMenuRef}>
-          <button
-            type="button"
-            onClick={() => setIsNotificationOpen((previous) => !previous)}
-            className="relative grid h-9 w-9 place-content-center rounded-lg border border-white/10 bg-[#171819] text-slate-300 transition hover:bg-white/10 hover:text-white"
-            aria-label="Notifications"
-          >
-            <Bell className="h-4 w-4" />
-            {unreadCount > 0 && (
-              <span className="absolute -right-1 -top-1 min-w-[16px] rounded-full bg-primary px-1 py-[1px] text-[10px] font-bold leading-none text-white">
-                {unreadCount > 9 ? "9+" : unreadCount}
-              </span>
-            )}
-          </button>
+        <div className="flex justify-end px-3 pt-3 md:px-4 lg:px-6 lg:pt-4">
+          <div className="relative" ref={notificationMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsNotificationOpen((previous) => !previous)}
+              className="relative grid h-9 w-9 place-content-center rounded-lg border border-white/10 bg-[#171819] text-slate-300 transition hover:bg-white/10 hover:text-white"
+              aria-label="Notifications"
+            >
+              <Bell className="h-4 w-4" />
+              {unreadCount > 0 && (
+                <span className="absolute -right-1 -top-1 min-w-[16px] rounded-full bg-primary px-1 py-[1px] text-[10px] font-bold leading-none text-white">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
 
-          {isNotificationOpen && (
-            <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(92vw,360px)] overflow-hidden rounded-xl border border-white/10 bg-[#171819] shadow-[0_14px_30px_rgba(2,6,23,0.35)]">
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                <div>
-                  <p className="text-sm font-semibold text-white">Notifications</p>
-                  <p className="text-xs text-slate-400">
-                    {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={markAllAsRead}
-                    disabled={notifications.length === 0 || unreadCount === 0}
-                    className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/10 disabled:opacity-40"
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      <CheckCheck className="h-3 w-3" /> Read all
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={clearNotifications}
-                    disabled={notifications.length === 0}
-                    className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/10 disabled:opacity-40"
-                  >
-                    Clear
-                  </button>
-                </div>
-              </div>
-
-              {notifications.length === 0 ? (
-                <div className="px-4 py-8 text-center">
-                  <p className="text-sm text-slate-300">No notifications yet.</p>
-                </div>
-              ) : (
-                <div className="max-h-[380px] space-y-2 overflow-y-auto p-2">
-                  {notifications.map((notification) => (
-                    <div
-                      key={notification.id}
-                      className={`rounded-lg border px-3 py-3 ${
-                        notification.read ? "border-white/5 bg-white/[0.02]" : "border-primary/30 bg-primary/10"
-                      }`}
+            {isNotificationOpen && (
+              <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(92vw,360px)] overflow-hidden rounded-xl border border-white/10 bg-[#171819] shadow-[0_14px_30px_rgba(2,6,23,0.35)]">
+                <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-white">Notifications</p>
+                    <p className="text-xs text-slate-400">
+                      {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={markAllAsRead}
+                      disabled={notifications.length === 0 || unreadCount === 0}
+                      className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/10 disabled:opacity-40"
                     >
-                      <div className="flex items-start gap-2.5">
-                        <div className="mt-0.5">{notificationIcon(notification.type)}</div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="text-sm font-semibold text-white">{notification.title}</p>
-                            {!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />}
-                          </div>
-                          <p className="mt-1 text-xs leading-5 text-slate-300">{notification.message}</p>
-                          <div className="mt-3 flex items-center justify-between gap-2">
-                            <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
-                              {new Date(notification.timestamp).toLocaleString("en-US", {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </p>
-                            <div className="flex items-center gap-1.5">
-                              {notification.link && (
+                      <span className="inline-flex items-center gap-1">
+                        <CheckCheck className="h-3 w-3" /> Read all
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearNotifications}
+                      disabled={notifications.length === 0}
+                      className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/10 disabled:opacity-40"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+
+                {notifications.length === 0 ? (
+                  <div className="px-4 py-8 text-center">
+                    <p className="text-sm text-slate-300">No notifications yet.</p>
+                  </div>
+                ) : (
+                  <div className="max-h-[380px] space-y-2 overflow-y-auto p-2">
+                    {notifications.map((notification) => (
+                      <div
+                        key={notification.id}
+                        className={`rounded-lg border px-3 py-3 ${notification.read ? "border-white/5 bg-white/[0.02]" : "border-primary/30 bg-primary/10"
+                          }`}
+                      >
+                        <div className="flex items-start gap-2.5">
+                          <div className="mt-0.5">{notificationIcon(notification.type)}</div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="text-sm font-semibold text-white">{notification.title}</p>
+                              {!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />}
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-slate-300">{notification.message}</p>
+                            <div className="mt-3 flex items-center justify-between gap-2">
+                              <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                                {new Date(notification.timestamp).toLocaleString("en-US", {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                              </p>
+                              <div className="flex items-center gap-1.5">
+                                {notification.link && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const link = notification.link;
+                                      if (!link) {
+                                        return;
+                                      }
+                                      markAsRead(notification.id);
+                                      setIsNotificationOpen(false);
+                                      void navigate(link);
+                                    }}
+                                    className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/10"
+                                  >
+                                    <span className="inline-flex items-center gap-1">
+                                      <ExternalLink className="h-3 w-3" /> Open
+                                    </span>
+                                  </button>
+                                )}
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    const link = notification.link;
-                                    if (!link) {
-                                      return;
-                                    }
-                                    markAsRead(notification.id);
-                                    setIsNotificationOpen(false);
-                                    void navigate(link);
-                                  }}
-                                  className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/10"
+                                  onClick={() => removeNotification(notification.id)}
+                                  className="rounded-md border border-white/10 px-1.5 py-1 text-slate-300 hover:bg-white/10"
                                 >
-                                  <span className="inline-flex items-center gap-1">
-                                    <ExternalLink className="h-3 w-3" /> Open
-                                  </span>
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </button>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => removeNotification(notification.id)}
-                                className="rounded-md border border-white/10 px-1.5 py-1 text-slate-300 hover:bg-white/10"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
-        <main className="px-3 pb-4 pt-14 md:px-4 lg:px-6 lg:pt-5">
+        <main className="px-3 pb-4 pt-3 md:px-4 lg:px-6 lg:pt-4">
           <Outlet />
         </main>
       </div>
