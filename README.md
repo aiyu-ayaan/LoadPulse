@@ -17,6 +17,10 @@ You may still encounter evolving flows, incomplete edges, or occasional bugs.
 - Multi-project workspace (each project has its own URL, history, and dashboard)
 - Concurrent k6 test execution across multiple projects
 - Live dashboard metrics via Socket.IO
+- Project-wise integrations:
+  - Schedule-based jobs (cron + timezone)
+  - API hook jobs for external triggers
+  - Project token management (generate/revoke/regenerate)
 - Per-test detail pages with real-time charts
 - Test history with search/filter
 - Stop active tests from:
@@ -52,6 +56,7 @@ You may still encounter evolving flows, incomplete edges, or occasional bugs.
 - `New Test`: configure VUs/duration/target and run k6
 - `Test History`: browse, search, delete, and stop runs
 - `Reports`: project-focused analytical view
+- `Integrations`: schedule tests or trigger them from external systems via secure hooks
 - `Settings`:
   - User Settings
   - Security
@@ -100,6 +105,21 @@ flowchart TD
   DB --> RS["Store in Redis (TTL)"]
   RS --> RP["Return response"]
   W["Write endpoint (create/update/delete/stop)"] --> INV["Invalidate API cache prefix"]
+```
+
+### Integration Trigger Flow
+
+```mermaid
+flowchart LR
+  U["User / CI Tool"] -->|"Create job"| I["Project Integration"]
+  I -->|"Trigger type: cron"| S["Scheduler (node-cron)"]
+  I -->|"Trigger type: api"| H["POST /api/integrations/hooks/:id"]
+  H -->|"Project token check"| T["Token Validation"]
+  S --> Q["Queue Test Run"]
+  T --> Q
+  Q --> K["k6 Runner"]
+  K --> M["MongoDB (run + metrics)"]
+  M --> D["Dashboard / History / Reports"]
 ```
 
 ## Tech Stack
@@ -238,6 +258,43 @@ Notes:
 - Write operations invalidate the API cache prefix
 - Live test views bypass cache where freshness matters
 
+## Integrations (Project-wise)
+
+Integrations belong to a single project. They do not cross projects.
+
+Supported integration job types:
+
+- `Schedule Job`: runs automatically using cron + timezone
+- `API Hook Job`: waits for an external HTTP trigger
+
+Trigger security:
+
+- API Hook jobs require a project integration token
+- Token can be sent through:
+  - `Authorization: Bearer <token>`
+  - `x-project-token: <token>`
+  - `?token=<token>` (query param)
+  - JSON body field `token`
+- Tokens are stored hashed in database
+
+Quick API hook example:
+
+```bash
+curl -X POST "http://localhost:4000/api/integrations/hooks/<integrationId>" \
+  -H "Authorization: Bearer <project-token>"
+```
+
+Typical response:
+
+```json
+{
+  "success": true,
+  "runId": "6805...",
+  "status": "queued",
+  "message": "Integration hook accepted. Test queued."
+}
+```
+
 ## Authentication and Access Model
 
 - First account created becomes owner/admin
@@ -272,6 +329,16 @@ Notes:
   - `DELETE /api/tests/:id`
 - Dashboard:
   - `GET /api/dashboard/overview?projectId=...`
+- Integrations:
+  - `GET /api/projects/:id/integrations`
+  - `POST /api/projects/:id/integrations`
+  - `PATCH /api/projects/:projectId/integrations/:integrationId`
+  - `DELETE /api/projects/:projectId/integrations/:integrationId`
+  - `POST /api/projects/:projectId/integrations/:integrationId/trigger`
+  - `GET /api/projects/:id/integration-token`
+  - `POST /api/projects/:id/integration-token/regenerate`
+  - `DELETE /api/projects/:id/integration-token`
+  - `POST /api/integrations/hooks/:id` (external trigger endpoint)
 - Admin:
   - `GET /api/admin/users`
   - `POST /api/admin/users`
