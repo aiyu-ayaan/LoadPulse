@@ -249,6 +249,8 @@ export const AdminPage = () => {
               {users.map((member) => {
                 const isWorking = workingUserId === member.id;
                 const isCurrentUser = member.id === user?.id;
+                const canToggleStatus = !member.isOwner && !isCurrentUser && !isWorking;
+                const canToggleAdmin = !member.isOwner && !isWorking;
                 return (
                   <div key={member.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
                     <div className="flex flex-wrap items-start justify-between gap-4">
@@ -276,18 +278,20 @@ export const AdminPage = () => {
                       <div className="flex flex-wrap items-center gap-2">
                         <button
                           type="button"
-                          disabled={isWorking || isCurrentUser}
+                          disabled={!canToggleStatus}
                           onClick={() => void handleToggleStatus(member)}
                           className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+                          title={member.isOwner ? "Owner account cannot be deactivated." : isCurrentUser ? "You cannot deactivate your own account." : ""}
                         >
                           {member.isActive ? <UserX className="h-3.5 w-3.5" /> : <UserCheck className="h-3.5 w-3.5" />}
                           {member.isActive ? "Deactivate" : "Activate"}
                         </button>
                         <button
                           type="button"
-                          disabled={isWorking}
+                          disabled={!canToggleAdmin}
                           onClick={() => void handleToggleAdmin(member)}
                           className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+                          title={member.isOwner ? "Owner account must remain admin." : ""}
                         >
                           {member.isAdmin ? <Users className="h-3.5 w-3.5" /> : <Shield className="h-3.5 w-3.5" />}
                           {member.isAdmin ? "Remove admin" : "Set admin"}
@@ -307,7 +311,7 @@ export const AdminPage = () => {
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-slate-400">
           <p className="inline-flex items-center gap-2">
             <KeyRound className="h-4 w-4 text-primary" />
-            Safety rules: deactivated users cannot sign in, and the last active admin account cannot be removed or deactivated.
+            Safety rules: owner stays admin and active, deactivated users cannot sign in, and the last active admin account cannot be removed or deactivated.
           </p>
         </div>
       </div>
