@@ -396,7 +396,7 @@ export const SettingsPage = () => {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8 pb-12">
+    <div className="mx-auto w-full max-w-7xl space-y-6 pb-12">
       <div className="space-y-2">
         <h1 className="text-3xl font-bold tracking-tight text-white">Settings</h1>
         <p className="text-sm text-slate-400 md:text-base">
@@ -404,41 +404,44 @@ export const SettingsPage = () => {
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[300px,1fr]">
-        <aside className="glass-panel rounded-3xl border border-white/10 p-6">
-          <div className="flex items-center gap-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <UserAvatar username={user.username} avatarDataUrl={user.avatarDataUrl} size="lg" />
-            <div className="min-w-0">
-              <p className="truncate text-base font-semibold text-white">{user.username}</p>
-              <p className="truncate text-sm text-slate-400">{user.email}</p>
-              <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-primary">
-                {user.githubLinked ? "GitHub linked" : "Password account"}
-              </p>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <aside className="glass-panel h-fit rounded-2xl border border-white/10 p-4 lg:sticky lg:top-24">
+          <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <div className="flex items-center gap-3">
+              <UserAvatar username={user.username} avatarDataUrl={user.avatarDataUrl} size="md" />
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-white">{user.username}</p>
+                <p className="truncate text-xs text-slate-400">{user.email}</p>
+                <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-primary">
+                  {user.githubLinked ? "GitHub linked" : "Password account"}
+                </p>
+              </div>
             </div>
           </div>
 
-          <div className="mt-6 space-y-2">
+          <p className="mt-4 px-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">Settings Menu</p>
+          <div className="mt-2 space-y-1.5">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${
                     activeTab === tab.key
-                      ? "border border-primary/30 bg-primary/15 text-white"
+                      ? "border border-primary/35 bg-primary/15 text-white"
                       : "border border-transparent text-slate-300 hover:bg-white/[0.05]"
                   }`}
                 >
                   <Icon className="h-4 w-4" />
-                  <span className="text-sm font-medium">{tab.label}</span>
+                  <span className="font-medium">{tab.label}</span>
                 </button>
               );
             })}
           </div>
         </aside>
 
-        <div className="space-y-6">
+        <section className="min-w-0 space-y-6">
           {activeTab === "profile" && (
             <section className="glass-panel rounded-3xl border border-white/10 p-6">
               <div className="mb-6">
@@ -880,7 +883,7 @@ export const SettingsPage = () => {
               )}
             </section>
           )}
-        </div>
+        </section>
       </div>
     </div>
   );
