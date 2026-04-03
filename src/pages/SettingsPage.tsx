@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
 import {
   Camera,
+  Crown,
   Mail,
   RefreshCcw,
   Search,
@@ -8,6 +9,7 @@ import {
   Smartphone,
   Trash2,
   UserCog,
+  UserCheck,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -70,9 +72,12 @@ const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) =>
     setCanRun(member.canRun);
   }, [member.canView, member.canRun, member.email, member.key]);
 
+  const hasChanges = canView !== member.canView || canRun !== member.canRun;
+  const isInvalidSelection = !canView && !canRun;
+
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-start gap-3">
         <UserAvatar username={member.username || member.email} avatarDataUrl={member.avatarDataUrl} size="sm" />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-semibold text-white">{member.username || member.email}</p>
@@ -85,11 +90,24 @@ const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) =>
                 : "Local account"}
           </p>
         </div>
+        <span
+          className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] ${hasChanges
+            ? "border-amber-300/40 bg-amber-500/10 text-amber-200"
+            : "border-emerald-300/30 bg-emerald-500/10 text-emerald-200"
+            }`}
+        >
+          {hasChanges ? "Unsaved" : "Saved"}
+        </span>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-[1fr,auto] md:items-center">
-        <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-sm text-slate-300">
-          <label className="flex items-center gap-2">
+      <div className="mt-4 grid gap-3 lg:grid-cols-[1fr,auto] lg:items-center">
+        <div className="grid gap-2 sm:grid-cols-2">
+          <label
+            className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition ${canView
+              ? "border-primary/45 bg-primary/10 text-white"
+              : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.05]"
+              }`}
+          >
             <input
               type="checkbox"
               checked={canView}
@@ -98,7 +116,12 @@ const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) =>
             />
             View
           </label>
-          <label className="flex items-center gap-2">
+          <label
+            className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition ${canRun
+              ? "border-primary/45 bg-primary/10 text-white"
+              : "border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.05]"
+              }`}
+          >
             <input
               type="checkbox"
               checked={canRun}
@@ -117,11 +140,11 @@ const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) =>
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={busy || (!canView && !canRun)}
+            disabled={busy || isInvalidSelection || !hasChanges}
             onClick={() => onSave(canView || canRun, canRun)}
             className="rounded-xl bg-primary px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-primary/90 disabled:opacity-60"
           >
-            {busy ? "Saving..." : "Save"}
+            {busy ? "Saving..." : hasChanges ? "Save Changes" : "Saved"}
           </button>
           <button
             type="button"
@@ -135,6 +158,10 @@ const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) =>
           </button>
         </div>
       </div>
+
+      {isInvalidSelection && (
+        <p className="mt-2 text-xs text-amber-200">Select at least one permission before saving.</p>
+      )}
     </div>
   );
 };
@@ -252,6 +279,17 @@ export const SettingsPage = () => {
     const trimmed = searchTerm.trim().toLowerCase();
     return isEmail(trimmed) ? trimmed : "";
   }, [searchTerm]);
+
+  const accessSummary = useMemo(() => {
+    const runners = members.filter((entry) => entry.canRun).length;
+    const viewersOnly = members.filter((entry) => entry.canView && !entry.canRun).length;
+
+    return {
+      totalPeople: members.length + (owner ? 1 : 0),
+      runners,
+      viewersOnly,
+    };
+  }, [members, owner]);
 
   const handleAvatarChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -737,17 +775,37 @@ export const SettingsPage = () => {
           )}
           {activeTab === "access" && (
             <section className="glass-panel rounded-3xl border border-white/10 p-6">
-              <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <h2 className="text-xl font-bold text-white">Access Management</h2>
-                  <p className="mt-1 text-sm text-slate-400">
-                    Share the selected project with teammates by email. If they sign in later with the same email, their access will appear automatically.
-                  </p>
+              <div className="relative mb-6 overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-primary/20 via-primary/5 to-transparent p-6">
+                <div className="pointer-events-none absolute -right-20 -top-16 h-48 w-48 rounded-full bg-primary/20 blur-3xl" />
+                <div className="relative flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-white">Access Management</h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+                      Invite teammates with precise access levels. Use view-only for observers and run access for operators who can execute tests.
+                    </p>
+                  </div>
+                  {selectedProject && (
+                    <div className="rounded-2xl border border-white/15 bg-black/25 px-4 py-3 text-sm text-slate-300">
+                      <p className="font-semibold text-white">{selectedProject.name}</p>
+                      <p className="mt-1 text-xs text-slate-400">{selectedProject.baseUrl}</p>
+                    </div>
+                  )}
                 </div>
-                {selectedProject && (
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
-                    <p className="font-semibold text-white">{selectedProject.name}</p>
-                    <p className="mt-1 text-xs text-slate-400">{selectedProject.baseUrl}</p>
+
+                {selectedProject && canManageSelectedProject && (
+                  <div className="relative mt-5 grid gap-3 sm:grid-cols-3">
+                    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Total People</p>
+                      <p className="mt-1 text-xl font-bold text-white">{accessSummary.totalPeople}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">Can Run Tests</p>
+                      <p className="mt-1 text-xl font-bold text-white">{accessSummary.runners}</p>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">View Only</p>
+                      <p className="mt-1 text-xl font-bold text-white">{accessSummary.viewersOnly}</p>
+                    </div>
                   </div>
                 )}
               </div>
@@ -772,12 +830,15 @@ export const SettingsPage = () => {
                   Only the project owner can manage sharing for this project.
                 </div>
               ) : (
-                <div className="grid gap-8 xl:grid-cols-[360px,1fr]">
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                    <h3 className="mb-4 flex items-center gap-2 text-lg font-semibold text-white">
+                <div className="grid gap-6 xl:grid-cols-[380px,minmax(0,1fr)]">
+                  <div className="rounded-3xl border border-white/10 bg-[#111317]/85 p-5">
+                    <h3 className="mb-1 flex items-center gap-2 text-lg font-semibold text-white">
                       <UserPlus className="h-4 w-4 text-primary" />
-                      Share Project
+                      Invite Teammates
                     </h3>
+                    <p className="mb-5 text-sm text-slate-400">
+                      Search by username or email, choose permissions, then add them to this project.
+                    </p>
 
                     <div className="space-y-4">
                       <div className="space-y-2">
@@ -795,38 +856,52 @@ export const SettingsPage = () => {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={inviteCanView}
-                            onChange={(event) => setInviteCanView(event.target.checked || inviteCanRun)}
-                            className="h-4 w-4"
-                          />
-                          View dashboard & history
-                        </label>
-                        <label className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            checked={inviteCanRun}
-                            onChange={(event) => {
-                              setInviteCanRun(event.target.checked);
-                              if (event.target.checked) {
-                                setInviteCanView(true);
-                              }
-                            }}
-                            className="h-4 w-4"
-                          />
-                          Run tests
-                        </label>
+                      <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Permission preset</p>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <label
+                            className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition ${inviteCanView
+                              ? "border-primary/45 bg-primary/10 text-white"
+                              : "border-white/10 text-slate-300 hover:bg-white/[0.05]"
+                              }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={inviteCanView}
+                              onChange={(event) => setInviteCanView(event.target.checked || inviteCanRun)}
+                              className="h-4 w-4"
+                            />
+                            View dashboard & history
+                          </label>
+                          <label
+                            className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition ${inviteCanRun
+                              ? "border-primary/45 bg-primary/10 text-white"
+                              : "border-white/10 text-slate-300 hover:bg-white/[0.05]"
+                              }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={inviteCanRun}
+                              onChange={(event) => {
+                                setInviteCanRun(event.target.checked);
+                                if (event.target.checked) {
+                                  setInviteCanView(true);
+                                }
+                              }}
+                              className="h-4 w-4"
+                            />
+                            Run tests
+                          </label>
+                        </div>
                       </div>
 
-                      <div className="space-y-3">
+                      <div className="space-y-3 rounded-2xl border border-white/10 bg-black/20 p-4">
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Matching users</p>
                         {searchLoading && <p className="text-sm text-slate-400">Searching existing users...</p>}
 
                         {!searchLoading &&
                           searchResults.map((result, index) => (
-                            <div key={result.id || result.email || `result-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                            <div key={result.id || result.email || `result-${index}`} className="rounded-2xl border border-white/10 bg-black/35 p-4">
                               <div className="flex items-center gap-3">
                                 <UserAvatar username={result.username || result.email || "user"} avatarDataUrl={result.avatarDataUrl} size="sm" />
                                 <div className="min-w-0 flex-1">
@@ -845,8 +920,12 @@ export const SettingsPage = () => {
                             </div>
                           ))}
 
+                        {!searchLoading && searchTerm.trim().length >= 2 && searchResults.length === 0 && !inviteEmail && (
+                          <p className="text-sm text-slate-400">No matching user found for this search.</p>
+                        )}
+
                         {inviteEmail && !searchResults.some((result) => String(result.email ?? "").toLowerCase() === inviteEmail) && (
-                          <div className="rounded-2xl border border-dashed border-white/15 bg-black/20 p-4">
+                          <div className="rounded-2xl border border-dashed border-white/15 bg-black/35 p-4">
                             <p className="text-sm text-slate-300">
                               No existing user matched <span className="font-semibold text-white">{inviteEmail}</span> yet.
                             </p>
@@ -867,8 +946,8 @@ export const SettingsPage = () => {
                     </div>
                   </div>
 
-                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-5">
-                    <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="rounded-3xl border border-white/10 bg-[#111317]/85 p-5">
+                    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                       <h3 className="flex items-center gap-2 text-lg font-semibold text-white">
                         <Users className="h-4 w-4 text-primary" />
                         People With Access
@@ -887,32 +966,38 @@ export const SettingsPage = () => {
                     ) : (
                       <div className="space-y-4">
                         {owner && (
-                          <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-primary">Project Owner</p>
-                            <div className="mt-3 flex items-center gap-3">
+                          <div className="rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/20 via-primary/8 to-transparent p-4">
+                            <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-primary">
+                              <Crown className="h-3.5 w-3.5" /> Project Owner
+                            </div>
+                            <div className="flex items-center gap-3">
                               <UserAvatar username={owner.username || owner.email} avatarDataUrl={owner.avatarDataUrl} size="sm" />
                               <div className="min-w-0">
                                 <p className="truncate text-sm font-semibold text-white">{owner.username || owner.email}</p>
-                                <p className="truncate text-xs text-slate-400">{owner.email}</p>
+                                <p className="truncate text-xs text-slate-300">{owner.email}</p>
                               </div>
                             </div>
                           </div>
                         )}
 
                         {members.length === 0 ? (
-                          <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-4 text-sm text-slate-300">
-                            This project is not shared yet. Add a teammate by username or email on the left.
+                          <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-8 text-center">
+                            <UserCheck className="mx-auto h-5 w-5 text-slate-500" />
+                            <p className="mt-3 text-sm font-medium text-slate-200">No members added yet</p>
+                            <p className="mt-1 text-sm text-slate-400">Search and invite teammates from the panel on the left.</p>
                           </div>
                         ) : (
-                          members.map((member) => (
-                            <ProjectMemberRow
-                              key={`${member.key}-${member.canView ? "view" : "hide"}-${member.canRun ? "run" : "norun"}`}
-                              member={member}
-                              busy={memberActionEmail === member.email}
-                              onSave={(canView, canRun) => void handleUpdateMember(member, canView, canRun)}
-                              onRemove={() => void handleRemoveMember(member)}
-                            />
-                          ))
+                          <div className="space-y-3">
+                            {members.map((member) => (
+                              <ProjectMemberRow
+                                key={`${member.key}-${member.canView ? "view" : "hide"}-${member.canRun ? "run" : "norun"}`}
+                                member={member}
+                                busy={memberActionEmail === member.email}
+                                onSave={(canView, canRun) => void handleUpdateMember(member, canView, canRun)}
+                                onRemove={() => void handleRemoveMember(member)}
+                              />
+                            ))}
+                          </div>
                         )}
                       </div>
                     )}
