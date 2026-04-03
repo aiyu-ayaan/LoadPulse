@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.1](https://github.com/aiyu-ayaan/LoadPulse/compare/v1.0.0...v1.0.1) (2026-04-03)
+
+
+### Bug Fixes
+
+* remove admin checks from project access functions ([953b027](https://github.com/aiyu-ayaan/LoadPulse/commit/953b0275c3bb8361becbade6bfa235a6fec12e50))
+
 ## 1.0.0 (2026-04-03)
 
 
