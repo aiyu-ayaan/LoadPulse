@@ -65,6 +65,11 @@ const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) =>
   const [canView, setCanView] = useState(member.canView);
   const [canRun, setCanRun] = useState(member.canRun);
 
+  useEffect(() => {
+    setCanView(member.canView);
+    setCanRun(member.canRun);
+  }, [member.canView, member.canRun, member.email, member.key]);
+
   return (
     <div className="rounded-2xl border border-white/10 bg-black/20 p-4">
       <div className="flex items-center gap-3">
@@ -466,11 +471,10 @@ export const SettingsPage = () => {
                 <button
                   key={tab.key}
                   onClick={() => setActiveTab(tab.key)}
-                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${
-                    activeTab === tab.key
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm transition ${activeTab === tab.key
                       ? "border border-primary/35 bg-primary/15 text-white"
                       : "border border-transparent text-slate-300 hover:bg-white/[0.05]"
-                  }`}
+                    }`}
                 >
                   <Icon className="h-4 w-4" />
                   <span className="font-medium">{tab.label}</span>
@@ -490,11 +494,10 @@ export const SettingsPage = () => {
 
               {(profileError || profileMessage) && (
                 <div
-                  className={`mb-4 rounded-2xl px-4 py-3 text-sm ${
-                    profileError
+                  className={`mb-4 rounded-2xl px-4 py-3 text-sm ${profileError
                       ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
                       : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                  }`}
+                    }`}
                 >
                   {profileError || profileMessage}
                 </div>
@@ -604,11 +607,10 @@ export const SettingsPage = () => {
 
                       {(passwordError || passwordMessage) && (
                         <div
-                          className={`rounded-2xl px-4 py-3 text-sm ${
-                            passwordError
+                          className={`rounded-2xl px-4 py-3 text-sm ${passwordError
                               ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
                               : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                          }`}
+                            }`}
                         >
                           {passwordError || passwordMessage}
                         </div>
@@ -639,9 +641,8 @@ export const SettingsPage = () => {
                       </p>
                     </div>
                     <span
-                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${
-                        user.twoFactorEnabled ? "bg-emerald-500/15 text-emerald-200" : "bg-white/10 text-slate-300"
-                      }`}
+                      className={`rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] ${user.twoFactorEnabled ? "bg-emerald-500/15 text-emerald-200" : "bg-white/10 text-slate-300"
+                        }`}
                     >
                       {user.twoFactorEnabled ? "Enabled" : "Off"}
                     </span>
@@ -649,11 +650,10 @@ export const SettingsPage = () => {
 
                   {(twoFactorError || twoFactorMessage) && (
                     <div
-                      className={`mt-4 rounded-2xl px-4 py-3 text-sm ${
-                        twoFactorError
+                      className={`mt-4 rounded-2xl px-4 py-3 text-sm ${twoFactorError
                           ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
                           : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                      }`}
+                        }`}
                     >
                       {twoFactorError || twoFactorMessage}
                     </div>
@@ -754,11 +754,10 @@ export const SettingsPage = () => {
 
               {(accessError || accessMessage) && (
                 <div
-                  className={`mb-4 rounded-2xl px-4 py-3 text-sm ${
-                    accessError
+                  className={`mb-4 rounded-2xl px-4 py-3 text-sm ${accessError
                       ? "border border-rose-500/30 bg-rose-500/10 text-rose-200"
                       : "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-                  }`}
+                    }`}
                 >
                   {accessError || accessMessage}
                 </div>

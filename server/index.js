@@ -2311,27 +2311,19 @@ app.post("/api/projects/:id/access", async (req, res) => {
 
   const existingIndex = (project.accessList ?? []).findIndex((entry) => normalizeEmail(entry.email) === value.email);
   if (existingIndex >= 0) {
-    project.accessList[existingIndex] = nextEntry;
+    project.accessList.set(existingIndex, nextEntry);
   } else {
     project.accessList.push(nextEntry);
   }
 
+  project.markModified("accessList");
   await project.save();
   await invalidateApiCache();
 
-  return res.status(201).json({
-    data: {
-      key: value.email,
-      email: value.email,
-      username: linkedUser?.username ?? "",
-      avatarDataUrl: linkedUser?.avatarDataUrl ?? "",
-      githubLinked: Boolean(linkedUser?.githubId),
-      hasAccount: Boolean(linkedUser),
-      canView: value.canView,
-      canRun: value.canRun,
-      isOwner: false,
-      joinedVia: linkedUser?.githubId ? "github" : linkedUser ? "local" : "pending",
-    },
+  const persistedEntry = (project.accessList ?? []).find((entry) => normalizeEmail(entry.email) === value.email) ?? nextEntry;
+
+  return res.status(existingIndex >= 0 ? 200 : 201).json({
+    data: toSharedMemberResponse(project, persistedEntry, linkedUser),
   });
 });
 
