@@ -48,7 +48,7 @@ const RequireAdmin = ({ children }: { children: ReactElement }) => {
   }
 
   if (!user?.isAdmin) {
-    return <Navigate to="/projects" replace />;
+    return <Navigate to="/admin/signin" replace />;
   }
 
   return children;
