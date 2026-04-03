@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { runTest } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
+import { HelperNote } from "../components/HelperNote";
 import { useNotifications } from "../context/useNotifications";
 import { ScriptEditor } from "../components/ScriptEditor";
 import { buildProjectTestPath } from "../lib/project-routes";
@@ -134,6 +135,11 @@ export const NewTestPage = () => {
         </div>
       )}
 
+      <HelperNote title="Plain language guide">
+        Virtual users are pretend visitors we send to your site at the same time. Duration is how long the test runs.
+        Load checks normal traffic, Stress pushes harder, Spike sends a sudden burst, and Smoke is a quick health check.
+      </HelperNote>
+
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-1">
           <div className="glass-panel space-y-5 rounded-2xl p-6">
@@ -166,7 +172,7 @@ export const NewTestPage = () => {
             </div>
 
             <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Load Profile</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted">Visitor Simulation</p>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -255,7 +261,7 @@ export const NewTestPage = () => {
             <div className="flex items-center justify-between border-b border-white/10 bg-white/[0.04] px-6 py-4">
               <div className="flex items-center gap-2">
                 <Code2 className="h-5 w-5 text-secondary-purple" />
-                <h3 className="font-bold">Advanced k6 Script (Optional)</h3>
+                <h3 className="font-bold">Advanced Script (Optional)</h3>
               </div>
               <div className="flex gap-2">
                 <div className="h-3 w-3 rounded-full bg-rose-500/50" />
@@ -276,7 +282,7 @@ export const NewTestPage = () => {
             </div>
 
             <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.04] px-6 py-3 text-xs text-slate-500">
-              <span>Template script auto-updates until you edit manually.</span>
+              <span>You can ignore this unless you want a custom developer script.</span>
               <div className="flex gap-4">
                 <span className="flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Script Ready

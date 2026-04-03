@@ -19,6 +19,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { EmptyState } from "../components/EmptyState";
+import { HelperNote } from "../components/HelperNote";
 import { useNavigate } from "react-router-dom";
 import { fetchDashboardOverview, getAuthToken, socketUrl, type DashboardOverview } from "../lib/api";
 import { useProjects } from "../context/useProjects";
@@ -225,6 +226,11 @@ export const DashboardPage = () => {
         <span className={`font-semibold ${insight.tone}`}>{insight.title}:</span> {insight.description}
       </div>
 
+      <HelperNote title="How to read this dashboard">
+        Wait time means how long a visitor waits for a page or API response. Failed visits means the share of requests that ended in an error.
+        Traffic every second shows how much work your site handled each second. Lower wait time and lower failures are usually the best signs.
+      </HelperNote>
+
       <section className="space-y-3">
         <h2 className="text-lg font-bold text-white">Running Tests (Click to View Details)</h2>
         {overview.runningTests.length === 0 ? (
@@ -244,10 +250,10 @@ export const DashboardPage = () => {
                   </div>
                   <ExternalLink className="h-4 w-4 text-primary" />
                 </div>
-                <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-200">
-                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">Avg: {Math.round(test.avgResponseTimeMs)}ms</div>
-                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">Err: {test.errorRatePct.toFixed(2)}%</div>
-                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">RPS: {test.throughputRps.toFixed(1)}</div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 text-xs text-slate-200">
+                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">Avg wait: {Math.round(test.avgResponseTimeMs)}ms</div>
+                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">Errors: {test.errorRatePct.toFixed(2)}%</div>
+                  <div className="rounded-lg bg-white/[0.04] px-2 py-1">Per sec: {test.throughputRps.toFixed(1)}</div>
                 </div>
               </button>
             ))}
@@ -299,7 +305,7 @@ export const DashboardPage = () => {
             >
               <div className="mb-6">
                 <h3 className="text-lg font-bold text-white tracking-tight">Wait Time During Test</h3>
-                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">Latency Trend (ms)</p>
+                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">How quickly your site answered over time</p>
               </div>
               <ResponsiveContainer width="100%" height="80%">
                 <AreaChart data={overview.responseTimeData}>
@@ -358,7 +364,7 @@ export const DashboardPage = () => {
             >
               <div className="mb-6">
                 <h3 className="text-lg font-bold text-white tracking-tight">Response Quality</h3>
-                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">Requests Status Distribution</p>
+                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">Successful visits versus failed ones</p>
               </div>
 
               <div className="relative mx-auto flex items-center justify-center h-[200px] w-full">
@@ -455,7 +461,7 @@ export const DashboardPage = () => {
             >
               <div className="mb-6">
                 <h3 className="text-lg font-bold text-white tracking-tight">Traffic Handled Per Second</h3>
-                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">Throughput (RPS)</p>
+                <p className="text-xs font-medium text-muted/60 mt-1 uppercase tracking-wider">How many requests your site handled each second</p>
               </div>
               <ResponsiveContainer width="100%" height="75%">
                 <BarChart data={overview.rpsData}>

@@ -15,6 +15,7 @@ import {
 import { io } from "socket.io-client";
 import { useNavigate } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
+import { HelperNote } from "../components/HelperNote";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { useProjects } from "../context/useProjects";
 import {
@@ -472,18 +473,23 @@ export const ReportsPage = () => {
         Selected run: <span className="font-semibold text-white">{selectedRun.name}</span> | Compared against: {previousRun ? previousRun.name : "no previous run yet"} | Recent run snapshots: {history.length}
       </div>
 
+      <HelperNote title="How to read this report">
+        This report mostly describes the selected run. The big chart compares that run with recent runs. p50 means a typical visitor wait,
+        p95 means slower visitors near the end, and p99 shows the very slowest edge cases. Lower times are better.
+      </HelperNote>
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <div className="space-y-6 lg:col-span-3">
           <div className="premium-card p-8 h-[450px]">
             <div className="mb-8 flex items-center justify-between">
               <div>
                 <h3 className="text-xl font-bold tracking-tight text-white">Latency Percentiles (p50, p95, p99)</h3>
-                <p className="mt-1 text-xs font-medium uppercase tracking-wider text-muted/60">Latest 10 runs comparison</p>
+                <p className="mt-1 text-xs font-medium uppercase tracking-wider text-muted/60">Typical, slow, and very slow visits across the latest 10 runs</p>
               </div>
               <div className="flex gap-4">
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted"><div className="h-2.5 w-2.5 rounded-full bg-primary" /> p50</div>
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted"><div className="h-2.5 w-2.5 rounded-full bg-secondary-purple" /> p95</div>
-                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted"><div className="h-2.5 w-2.5 rounded-full bg-secondary-teal" /> p99</div>
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted"><div className="h-2.5 w-2.5 rounded-full bg-primary" /> p50 typical</div>
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted"><div className="h-2.5 w-2.5 rounded-full bg-secondary-purple" /> p95 slow</div>
+                <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted"><div className="h-2.5 w-2.5 rounded-full bg-secondary-teal" /> p99 very slow</div>
               </div>
             </div>
 
@@ -514,7 +520,7 @@ export const ReportsPage = () => {
               <div className="mb-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Cpu className="h-5 w-5 text-secondary-purple" />
-                  <h3 className="font-bold text-white">Latency Intensity</h3>
+                  <h3 className="font-bold text-white">Slowest Moments</h3>
                 </div>
                 <span className="rounded-md bg-secondary-purple/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-secondary-purple">
                   {Math.round(selectedRun.finalMetrics?.p99LatencyMs ?? selectedRun.liveMetrics?.avgLatencyMs ?? 0)}ms peak
@@ -531,10 +537,10 @@ export const ReportsPage = () => {
               <div className="mb-6 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Network className="h-5 w-5 text-secondary-teal" />
-                  <h3 className="font-bold text-white">Bandwidth / Throughput</h3>
+                  <h3 className="font-bold text-white">Traffic Handled Each Second</h3>
                 </div>
                 <span className="rounded-md bg-secondary-teal/10 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-secondary-teal">
-                  {(selectedRun.finalMetrics?.throughputRps ?? selectedRun.liveMetrics?.throughputRps ?? 0).toFixed(2)} rps
+                  {(selectedRun.finalMetrics?.throughputRps ?? selectedRun.liveMetrics?.throughputRps ?? 0).toFixed(2)} per sec
                 </span>
               </div>
               <div className="h-32 rounded-2xl border border-white/[0.01] bg-white/[0.02] p-4 flex items-end gap-1.5">
@@ -562,8 +568,8 @@ export const ReportsPage = () => {
                   <p className="text-sm font-semibold text-white">{run.name}</p>
                   <p className="mt-1 text-xs text-slate-400">{formatMetricDate(run.createdAt)}</p>
                   <div className="mt-3 flex items-center justify-between text-xs text-slate-300">
-                    <span>{Math.round(run.finalMetrics?.avgLatencyMs ?? run.liveMetrics?.avgLatencyMs ?? 0)}ms avg</span>
-                    <span>{(run.finalMetrics?.errorRatePct ?? run.liveMetrics?.errorRatePct ?? 0).toFixed(2)}% err</span>
+                    <span>{Math.round(run.finalMetrics?.avgLatencyMs ?? run.liveMetrics?.avgLatencyMs ?? 0)}ms average wait</span>
+                    <span>{(run.finalMetrics?.errorRatePct ?? run.liveMetrics?.errorRatePct ?? 0).toFixed(2)}% failed</span>
                   </div>
                 </button>
               ))}
@@ -578,7 +584,7 @@ export const ReportsPage = () => {
             </h4>
             <div className="flex items-baseline gap-2">
               <span className="text-4xl font-black tracking-tighter text-white">{improvementScore >= 0 ? "+" : ""}{improvementScore}%</span>
-              <span className="pb-1 text-[10px] font-black uppercase tracking-wider text-success">vs previous run</span>
+              <span className="pb-1 text-[10px] font-black uppercase tracking-wider text-success">versus previous run</span>
             </div>
             <p className="mt-4 text-xs font-medium leading-relaxed text-muted/80">
               {improvementScore >= 0 ? "Average latency improved compared to the previous run." : "Average latency regressed compared to the previous run."}
