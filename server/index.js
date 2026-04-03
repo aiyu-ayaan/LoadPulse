@@ -10,10 +10,14 @@ import express from "express";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import { Server } from "socket.io";
+import cron from "node-cron";
 import { Project } from "./models/Project.js";
 import { TestRun } from "./models/TestRun.js";
 import { User } from "./models/User.js";
+import { Integration } from "./models/Integration.js";
+import { ProjectIntegrationToken } from "./models/ProjectIntegrationToken.js";
 import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun, stopActiveRun } from "./services/k6Runner.js";
+import { getSchedulerJobCount, initIntegrationScheduler, scheduleIntegration, unscheduleIntegration } from "./services/integrationScheduler.js";
 import {
   AUTH_TOKEN_MAX_AGE_SECONDS,
   TWO_FACTOR_TOKEN_MAX_AGE_SECONDS,
@@ -122,7 +126,10 @@ const CACHE_TTL_SECONDS = Object.freeze({
   testDetail: 15,
   dashboard: 10,
   adminUsers: 20,
+  integrations: 20,
+  projectToken: 20,
 });
+const PROJECT_TOKEN_PREFIX = "lpt_";
 
 const toStableObject = (value) => {
   if (Array.isArray(value)) {
@@ -482,6 +489,76 @@ const validateTestPayload = (payload, project) => {
   };
 };
 
+const validateIntegrationPayload = (payload, project) => {
+  const testValidation = validateTestPayload(payload, project);
+  if (testValidation.error) {
+    return testValidation;
+  }
+
+  const triggerType = String(payload?.triggerType ?? "cron").trim().toLowerCase();
+  const cronExpression = String(payload?.cronExpression ?? "").trim();
+  const timezone = String(payload?.timezone ?? "UTC").trim() || "UTC";
+  const isEnabled = payload?.isEnabled === undefined ? true : Boolean(payload?.isEnabled);
+  const allowApiTrigger = payload?.allowApiTrigger === undefined ? true : Boolean(payload?.allowApiTrigger);
+
+  if (triggerType !== "cron") {
+    return { error: "Only cron-based integrations are supported right now." };
+  }
+  if (!cronExpression || !cron.validate(cronExpression)) {
+    return { error: "A valid cron expression is required for scheduled integrations." };
+  }
+
+  return {
+    value: {
+      ...testValidation.value,
+      triggerType,
+      cronExpression,
+      timezone,
+      isEnabled,
+      allowApiTrigger,
+    },
+  };
+};
+
+const toIntegrationResponse = (integration) => ({
+  id: toObjectIdString(integration?._id),
+  projectId: toObjectIdString(integration?.projectId),
+  name: integration?.name ?? "",
+  targetUrl: integration?.targetUrl ?? "",
+  type: integration?.type ?? "Load",
+  region: integration?.region ?? "us-east-1",
+  vus: Number(integration?.vus ?? 1),
+  duration: integration?.duration ?? "30s",
+  script: integration?.script ?? "",
+  triggerType: integration?.triggerType ?? "cron",
+  cronExpression: integration?.cronExpression ?? "",
+  timezone: integration?.timezone ?? "UTC",
+  isEnabled: Boolean(integration?.isEnabled),
+  allowApiTrigger: Boolean(integration?.allowApiTrigger),
+  lastTriggeredAt: integration?.lastTriggeredAt ?? null,
+  lastRunId: toObjectIdString(integration?.lastRunId) || null,
+  lastRunStatus: integration?.lastRunStatus ?? "",
+  lastTriggerSource: integration?.lastTriggerSource ?? "",
+  lastError: integration?.lastError ?? "",
+  createdAt: integration?.createdAt ?? null,
+  updatedAt: integration?.updatedAt ?? null,
+  hookPath: `/api/integrations/hooks/${toObjectIdString(integration?._id)}`,
+});
+
+const toProjectIntegrationTokenMeta = (tokenDoc) => ({
+  hasToken: Boolean(tokenDoc),
+  preview: tokenDoc?.tokenPreview ?? "",
+  updatedAt: tokenDoc?.updatedAt ?? null,
+  lastUsedAt: tokenDoc?.lastUsedAt ?? null,
+});
+
+const hashProjectToken = (token) => createHash("sha256").update(String(token ?? "")).digest("hex");
+
+const generateProjectToken = () => `${PROJECT_TOKEN_PREFIX}${randomBytes(24).toString("hex")}`;
+
+const readProjectTokenFromRequest = (req) =>
+  readBearerToken(req.headers.authorization ?? req.headers["x-project-token"] ?? req.query?.token ?? req.body?.token);
+
 const normalizeUsername = (value) => String(value ?? "").trim().toLowerCase();
 const normalizeEmail = (value) => String(value ?? "").trim().toLowerCase();
 const toPlainObject = (value) => (typeof value?.toObject === "function" ? value.toObject() : value);
@@ -758,6 +835,127 @@ const ensureProjectManageAccess = async (projectId, authUser) => {
   }
 
   return { project, access };
+};
+
+const ensureProjectViewAccess = async (projectId, authUser) => {
+  const project = await Project.findById(projectId);
+  if (!project) {
+    return { error: { status: 404, message: "Project not found." } };
+  }
+
+  const access = resolveProjectAccess(project, authUser);
+  if (!access.canView) {
+    return { error: { status: 403, message: "You do not have permission to view this project." } };
+  }
+
+  return { project, access };
+};
+
+const ensureProjectRunAccess = async (projectId, authUser) => {
+  const project = await Project.findById(projectId);
+  if (!project) {
+    return { error: { status: 404, message: "Project not found." } };
+  }
+
+  const access = resolveProjectAccess(project, authUser);
+  if (!access.canRun) {
+    return { error: { status: 403, message: "You do not have permission to run tests for this project." } };
+  }
+
+  return { project, access };
+};
+
+const createTestRunFromTemplate = async (template) => {
+  const testRun = await TestRun.create({
+    projectId: template.projectId,
+    projectName: template.projectName,
+    projectBaseUrl: template.projectBaseUrl,
+    name: template.name,
+    targetUrl: template.targetUrl,
+    type: template.type,
+    region: template.region,
+    duration: template.duration,
+    vus: template.vus,
+    script: template.script,
+  });
+
+  await invalidateApiCache();
+
+  void startK6Run(testRun).catch(async (runnerError) => {
+    await TestRun.updateOne(
+      { _id: testRun._id },
+      {
+        $set: {
+          status: "failed",
+          endedAt: new Date(),
+          errorMessage: String(runnerError?.message ?? runnerError),
+        },
+      },
+    );
+    await invalidateApiCache();
+  });
+
+  return testRun;
+};
+
+const triggerIntegrationRun = async (integrationId, triggerMeta = {}) => {
+  const integration = await Integration.findById(integrationId);
+  if (!integration) {
+    return { error: { status: 404, message: "Integration not found." } };
+  }
+  if (!integration.isEnabled) {
+    return { error: { status: 409, message: "Integration is disabled." } };
+  }
+
+  const project = await Project.findById(integration.projectId).lean();
+  if (!project) {
+    integration.lastError = "Project not found for this integration.";
+    integration.lastRunStatus = "failed";
+    await integration.save();
+    return { error: { status: 404, message: "Project not found for this integration." } };
+  }
+
+  try {
+    const testRun = await createTestRunFromTemplate({
+      projectId: integration.projectId,
+      projectName: project.name,
+      projectBaseUrl: project.baseUrl,
+      name: integration.name,
+      targetUrl: integration.targetUrl,
+      type: integration.type,
+      region: integration.region,
+      duration: integration.duration,
+      vus: integration.vus,
+      script: integration.script,
+    });
+
+    integration.lastTriggeredAt = new Date();
+    integration.lastRunId = testRun._id;
+    integration.lastRunStatus = "queued";
+    integration.lastTriggerSource = String(triggerMeta?.source ?? "manual");
+    integration.lastError = "";
+    await integration.save();
+    await invalidateApiCache();
+
+    return {
+      run: testRun,
+      integration,
+    };
+  } catch (error) {
+    integration.lastTriggeredAt = new Date();
+    integration.lastRunStatus = "failed";
+    integration.lastTriggerSource = String(triggerMeta?.source ?? "manual");
+    integration.lastError = String(error?.message ?? error ?? "Unable to queue integration run.");
+    await integration.save();
+    await invalidateApiCache();
+
+    return {
+      error: {
+        status: 500,
+        message: integration.lastError,
+      },
+    };
+  }
 };
 
 const validateSignUpPayload = (payload) => {
@@ -1085,6 +1283,12 @@ await mongoose.connect(mongoUri, { dbName: databaseName });
 await initCache();
 await ensureLegacyOwnerAndAdmin();
 await markOrphanedRuns();
+await initIntegrationScheduler({
+  integrations: await Integration.find({ isEnabled: true, triggerType: "cron" }).lean(),
+  onTrigger: async (integrationId, meta) => {
+    await triggerIntegrationRun(integrationId, meta);
+  },
+});
 
 const app = express();
 const server = http.createServer(app);
@@ -1159,6 +1363,7 @@ app.get("/api/health", async (_req, res) => {
     status: "ok",
     mongo: mongoState,
     redis: getCacheHealth(),
+    integrationJobs: getSchedulerJobCount(),
     activeRuns: getActiveRunSnapshots().length,
     now: new Date().toISOString(),
   });
@@ -1555,6 +1760,52 @@ app.post("/api/auth/signout", async (_req, res) => {
   return res.status(204).end();
 });
 
+app.post("/api/integrations/hooks/:id", async (req, res) => {
+  const integrationId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(integrationId)) {
+    return res.status(400).json({ error: "Invalid integration id." });
+  }
+
+  const token = readProjectTokenFromRequest(req);
+  if (!token) {
+    return res.status(401).json({ error: "Missing project integration token." });
+  }
+
+  const integration = await Integration.findById(integrationId).lean();
+  if (!integration) {
+    return res.status(404).json({ error: "Integration not found." });
+  }
+  if (!integration.allowApiTrigger) {
+    return res.status(403).json({ error: "API trigger is disabled for this integration." });
+  }
+
+  const tokenRecord = await ProjectIntegrationToken.findOne({ projectId: integration.projectId });
+  if (!tokenRecord) {
+    return res.status(401).json({ error: "Project integration token is not configured." });
+  }
+  if (tokenRecord.tokenHash !== hashProjectToken(token)) {
+    return res.status(401).json({ error: "Invalid project integration token." });
+  }
+
+  tokenRecord.lastUsedAt = new Date();
+  await tokenRecord.save();
+
+  const triggerResult = await triggerIntegrationRun(integrationId, {
+    source: "api",
+    reason: "Triggered via integration hook",
+  });
+  if (triggerResult.error) {
+    return res.status(triggerResult.error.status).json({ error: triggerResult.error.message });
+  }
+
+  return res.status(202).json({
+    success: true,
+    runId: triggerResult.run._id.toString(),
+    status: "queued",
+    message: "Integration hook accepted. Test queued.",
+  });
+});
+
 app.use("/api", (req, res, next) => {
   if (
     req.path === "/health" ||
@@ -1926,7 +2177,13 @@ app.delete("/api/projects/:id", async (req, res) => {
   }
 
   const deletedRuns = await TestRun.deleteMany({ projectId });
+  const integrations = await Integration.find({ projectId }).select({ _id: 1 }).lean();
+  await Integration.deleteMany({ projectId });
+  await ProjectIntegrationToken.deleteOne({ projectId });
   await Project.deleteOne({ _id: projectId });
+  for (const integration of integrations) {
+    unscheduleIntegration(integration._id.toString());
+  }
   await invalidateApiCache();
 
   return res.json({
@@ -2107,6 +2364,253 @@ app.delete("/api/projects/:id/access", async (req, res) => {
   });
 });
 
+app.get("/api/projects/:id/integrations", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const viewResult = await ensureProjectViewAccess(projectId, req.authUser);
+  if (viewResult.error) {
+    return res.status(viewResult.error.status).json({ error: viewResult.error.message });
+  }
+
+  const cacheKey = buildCacheKey("project-integrations", req.authUser, { projectId });
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  const rows = await Integration.find({ projectId }).sort({ createdAt: -1 }).lean();
+  const payload = {
+    data: rows.map(toIntegrationResponse),
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.integrations);
+  return res.json(payload);
+});
+
+app.post("/api/projects/:id/integrations", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const runResult = await ensureProjectRunAccess(projectId, req.authUser);
+  if (runResult.error) {
+    return res.status(runResult.error.status).json({ error: runResult.error.message });
+  }
+
+  const { value, error } = validateIntegrationPayload(req.body, runResult.project);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const integration = await Integration.create({
+    projectId,
+    name: value.name,
+    targetUrl: value.targetUrl,
+    type: value.type,
+    region: value.region,
+    vus: value.vus,
+    duration: value.duration,
+    script: value.script,
+    triggerType: value.triggerType,
+    cronExpression: value.cronExpression,
+    timezone: value.timezone,
+    isEnabled: value.isEnabled,
+    allowApiTrigger: value.allowApiTrigger,
+    createdByUserId: new mongoose.Types.ObjectId(req.authUser.id),
+  });
+
+  scheduleIntegration(integration.toObject());
+  await invalidateApiCache();
+
+  return res.status(201).json({
+    data: toIntegrationResponse(integration),
+  });
+});
+
+app.patch("/api/projects/:projectId/integrations/:integrationId", async (req, res) => {
+  const projectId = String(req.params.projectId ?? "").trim();
+  const integrationId = String(req.params.integrationId ?? "").trim();
+  if (!isValidObjectId(projectId) || !isValidObjectId(integrationId)) {
+    return res.status(400).json({ error: "Invalid project or integration id." });
+  }
+
+  const runResult = await ensureProjectRunAccess(projectId, req.authUser);
+  if (runResult.error) {
+    return res.status(runResult.error.status).json({ error: runResult.error.message });
+  }
+
+  const existing = await Integration.findOne({ _id: integrationId, projectId });
+  if (!existing) {
+    return res.status(404).json({ error: "Integration not found." });
+  }
+
+  const { value, error } = validateIntegrationPayload(req.body, runResult.project);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  existing.name = value.name;
+  existing.targetUrl = value.targetUrl;
+  existing.type = value.type;
+  existing.region = value.region;
+  existing.vus = value.vus;
+  existing.duration = value.duration;
+  existing.script = value.script;
+  existing.triggerType = value.triggerType;
+  existing.cronExpression = value.cronExpression;
+  existing.timezone = value.timezone;
+  existing.isEnabled = value.isEnabled;
+  existing.allowApiTrigger = value.allowApiTrigger;
+  await existing.save();
+
+  scheduleIntegration(existing.toObject());
+  await invalidateApiCache();
+
+  return res.json({
+    data: toIntegrationResponse(existing),
+  });
+});
+
+app.delete("/api/projects/:projectId/integrations/:integrationId", async (req, res) => {
+  const projectId = String(req.params.projectId ?? "").trim();
+  const integrationId = String(req.params.integrationId ?? "").trim();
+  if (!isValidObjectId(projectId) || !isValidObjectId(integrationId)) {
+    return res.status(400).json({ error: "Invalid project or integration id." });
+  }
+
+  const runResult = await ensureProjectRunAccess(projectId, req.authUser);
+  if (runResult.error) {
+    return res.status(runResult.error.status).json({ error: runResult.error.message });
+  }
+
+  const deleted = await Integration.findOneAndDelete({ _id: integrationId, projectId });
+  if (!deleted) {
+    return res.status(404).json({ error: "Integration not found." });
+  }
+
+  unscheduleIntegration(integrationId);
+  await invalidateApiCache();
+
+  return res.json({
+    success: true,
+  });
+});
+
+app.post("/api/projects/:projectId/integrations/:integrationId/trigger", async (req, res) => {
+  const projectId = String(req.params.projectId ?? "").trim();
+  const integrationId = String(req.params.integrationId ?? "").trim();
+  if (!isValidObjectId(projectId) || !isValidObjectId(integrationId)) {
+    return res.status(400).json({ error: "Invalid project or integration id." });
+  }
+  if (!canRunProject(req.authUser, projectId)) {
+    return res.status(403).json({ error: "You do not have permission to run this integration." });
+  }
+
+  const integration = await Integration.findOne({ _id: integrationId, projectId }).lean();
+  if (!integration) {
+    return res.status(404).json({ error: "Integration not found." });
+  }
+
+  const triggerResult = await triggerIntegrationRun(integrationId, {
+    source: "manual",
+    reason: `Triggered by ${req.authUser.username}`,
+  });
+  if (triggerResult.error) {
+    return res.status(triggerResult.error.status).json({ error: triggerResult.error.message });
+  }
+
+  return res.status(202).json({
+    success: true,
+    runId: triggerResult.run._id.toString(),
+    status: "queued",
+    message: "Integration triggered. Test queued.",
+  });
+});
+
+app.get("/api/projects/:id/integration-token", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const accessResult = await ensureProjectManageAccess(projectId, req.authUser);
+  if (accessResult.error) {
+    return res.status(accessResult.error.status).json({ error: accessResult.error.message });
+  }
+
+  const cacheKey = buildCacheKey("project-integration-token", req.authUser, { projectId });
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  const tokenRecord = await ProjectIntegrationToken.findOne({ projectId }).lean();
+  const payload = {
+    data: toProjectIntegrationTokenMeta(tokenRecord),
+  };
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.projectToken);
+  return res.json(payload);
+});
+
+app.post("/api/projects/:id/integration-token/regenerate", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const accessResult = await ensureProjectManageAccess(projectId, req.authUser);
+  if (accessResult.error) {
+    return res.status(accessResult.error.status).json({ error: accessResult.error.message });
+  }
+
+  const token = generateProjectToken();
+  const tokenPreview = `${token.slice(0, 8)}...${token.slice(-6)}`;
+  const tokenHash = hashProjectToken(token);
+
+  const tokenRecord = await ProjectIntegrationToken.findOneAndUpdate(
+    { projectId },
+    {
+      $set: {
+        tokenHash,
+        tokenPreview,
+        createdByUserId: new mongoose.Types.ObjectId(req.authUser.id),
+        lastUsedAt: null,
+      },
+    },
+    { new: true, upsert: true },
+  );
+
+  await invalidateApiCache();
+
+  return res.status(201).json({
+    data: {
+      token,
+      ...toProjectIntegrationTokenMeta(tokenRecord),
+    },
+  });
+});
+
+app.delete("/api/projects/:id/integration-token", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const accessResult = await ensureProjectManageAccess(projectId, req.authUser);
+  if (accessResult.error) {
+    return res.status(accessResult.error.status).json({ error: accessResult.error.message });
+  }
+
+  await ProjectIntegrationToken.deleteOne({ projectId });
+  await invalidateApiCache();
+
+  return res.json({ success: true });
+});
+
 app.post("/api/tests/run", async (req, res) => {
   const projectId = String(req.body?.projectId ?? "").trim();
   if (!isValidObjectId(projectId)) {
@@ -2126,21 +2630,7 @@ app.post("/api/tests/run", async (req, res) => {
     return res.status(400).json({ error });
   }
 
-  const testRun = await TestRun.create(value);
-  await invalidateApiCache();
-
-  void startK6Run(testRun).catch(async (runnerError) => {
-    await TestRun.updateOne(
-      { _id: testRun._id },
-      {
-        $set: {
-          status: "failed",
-          endedAt: new Date(),
-          errorMessage: String(runnerError?.message ?? runnerError),
-        },
-      },
-    );
-  });
+  const testRun = await createTestRunFromTemplate(value);
 
   return res.status(202).json({
     id: testRun._id.toString(),

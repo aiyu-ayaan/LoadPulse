@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { TestRun } from "../models/TestRun.js";
+import { Integration } from "../models/Integration.js";
 
 const RUN_OUTPUT_DIR = path.join(os.tmpdir(), "loadpulse-runs");
 const MAX_SERIES_POINTS = Number(process.env.MAX_SERIES_POINTS ?? 180);
@@ -328,6 +329,15 @@ const persistLiveSnapshot = async (state) => {
           timestamp: point.timestamp,
         })),
         "liveMetrics.lastUpdatedAt": new Date(),
+      },
+    },
+  );
+  await Integration.updateMany(
+    { lastRunId: state.runId },
+    {
+      $set: {
+        lastRunStatus: finalStatus,
+        lastError: errorMessage ?? "",
       },
     },
   );
