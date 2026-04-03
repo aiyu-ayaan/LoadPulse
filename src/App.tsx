@@ -64,7 +64,7 @@ function App() {
         <Route
           path="/admin/signin"
           element={
-            isAuthenticated ? (user?.isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/projects" replace />) : <AdminSignInPage />
+            isAuthenticated && user?.isAdmin ? <Navigate to="/admin" replace /> : <AdminSignInPage />
           }
         />
         <Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
