@@ -1,5 +1,5 @@
 import http from "node:http";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
@@ -35,6 +35,13 @@ import {
   verifyTwoFactorCode,
 } from "./utils/twoFactor.js";
 import { resolveScript } from "./utils/k6Script.js";
+import {
+  deleteCacheByPrefix,
+  getCacheHealth,
+  getCachedJson,
+  initCache,
+  setCachedJson,
+} from "./utils/cache.js";
 
 dotenv.config();
 
@@ -105,6 +112,50 @@ const authCookieBaseOptions = {
   sameSite: "lax",
   secure: authCookieSecure,
   path: "/",
+};
+const CACHE_KEY_PREFIX = "loadpulse:api:v1";
+const CACHE_TTL_SECONDS = Object.freeze({
+  projects: 20,
+  usersSearch: 20,
+  projectAccess: 20,
+  testsHistory: 15,
+  testDetail: 15,
+  dashboard: 10,
+  adminUsers: 20,
+});
+
+const toStableObject = (value) => {
+  if (Array.isArray(value)) {
+    return value.map((entry) => toStableObject(entry));
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = toStableObject(value[key]);
+        return acc;
+      }, {});
+  }
+  return value;
+};
+
+const buildCacheKey = (scope, authUser, payload = {}) => {
+  const digest = createHash("sha1")
+    .update(
+      JSON.stringify(
+        toStableObject({
+          userId: authUser?.id ?? "anonymous",
+          payload,
+        }),
+      ),
+    )
+    .digest("hex");
+
+  return `${CACHE_KEY_PREFIX}:${scope}:${digest}`;
+};
+
+const invalidateApiCache = async () => {
+  await deleteCacheByPrefix(CACHE_KEY_PREFIX);
 };
 
 const emptyDashboard = () => ({
@@ -1031,6 +1082,7 @@ const getProjectStatsMap = async (projectIds = null) => {
 };
 
 await mongoose.connect(mongoUri, { dbName: databaseName });
+await initCache();
 await ensureLegacyOwnerAndAdmin();
 await markOrphanedRuns();
 
@@ -1106,6 +1158,7 @@ app.get("/api/health", async (_req, res) => {
   res.json({
     status: "ok",
     mongo: mongoState,
+    redis: getCacheHealth(),
     activeRuns: getActiveRunSnapshots().length,
     now: new Date().toISOString(),
   });
@@ -1191,6 +1244,7 @@ app.post("/api/auth/signup", async (req, res) => {
     isActive: true,
   });
 
+  await invalidateApiCache();
   return sendSessionResponse(res, user, 201);
 });
 
@@ -1222,6 +1276,7 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     isActive: true,
   });
 
+  await invalidateApiCache();
   return sendSessionResponse(res, user, 201);
 });
 
@@ -1380,6 +1435,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
     }
 
     let user = await User.findOne({ githubId });
+    let userChanged = false;
     if (!user) {
       user = await User.findOne({ email });
     }
@@ -1401,6 +1457,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
         isOwner: userCount === 0 || ownerCount === 0,
         isActive: true,
       });
+      userChanged = true;
     } else {
       user.githubId = githubId;
       user.githubUsername = githubUsername || user.githubUsername;
@@ -1416,6 +1473,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
       }
 
       await user.save();
+      userChanged = true;
     }
 
     if (user.isActive === false) {
@@ -1423,6 +1481,9 @@ app.get("/api/auth/github/callback", async (req, res) => {
     }
 
     await syncUserProjectIdentity(user);
+    if (userChanged) {
+      await invalidateApiCache();
+    }
 
     if (user.twoFactorEnabled) {
       const pendingToken = signTwoFactorToken(user, jwtSecret);
@@ -1519,14 +1580,23 @@ app.get("/api/auth/me", async (req, res) => {
   });
 });
 
-app.get("/api/admin/users", requireAdmin, async (_req, res) => {
+app.get("/api/admin/users", requireAdmin, async (req, res) => {
+  const cacheKey = buildCacheKey("admin-users", req.authUser);
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const users = await User.find({})
     .sort({ createdAt: -1 })
     .lean();
 
-  return res.json({
+  const payload = {
     data: users.map(toAdminUserResponse),
-  });
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.adminUsers);
+  return res.json(payload);
 });
 
 app.get("/api/admin/about", requireAdmin, async (_req, res) => {
@@ -1570,6 +1640,7 @@ app.post("/api/admin/users", requireAdmin, async (req, res) => {
     isActive: value.isActive,
   });
 
+  await invalidateApiCache();
   return res.status(201).json({
     data: toAdminUserResponse(user),
   });
@@ -1612,6 +1683,7 @@ app.patch("/api/admin/users/:id/status", requireAdmin, async (req, res) => {
 
   targetUser.isActive = isActive;
   await targetUser.save();
+  await invalidateApiCache();
 
   return res.json({
     data: toAdminUserResponse(targetUser),
@@ -1650,6 +1722,7 @@ app.patch("/api/admin/users/:id/admin", requireAdmin, async (req, res) => {
 
   targetUser.isAdmin = isAdmin;
   await targetUser.save();
+  await invalidateApiCache();
 
   return res.json({
     data: toAdminUserResponse(targetUser),
@@ -1683,6 +1756,7 @@ app.patch("/api/auth/profile", async (req, res) => {
   );
 
   await syncUserProjectIdentity(user);
+  await invalidateApiCache();
 
   return res.json({
     user: await buildSessionUser(user),
@@ -1790,6 +1864,12 @@ app.post("/api/auth/2fa/disable", async (req, res) => {
 });
 
 app.get("/api/projects", async (req, res) => {
+  const cacheKey = buildCacheKey("projects", req.authUser);
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const allowedProjectIds = getViewableProjectIds(req.authUser);
   const projectFilter = allowedProjectIds === null ? {} : { _id: { $in: allowedProjectIds } };
   const [projects, statsMap] = await Promise.all([
@@ -1797,9 +1877,12 @@ app.get("/api/projects", async (req, res) => {
     getProjectStatsMap(allowedProjectIds),
   ]);
 
-  res.json({
+  const payload = {
     data: projects.map((project) => toProjectResponse(project, statsMap.get(project._id.toString()), req.authUser)),
-  });
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.projects);
+  return res.json(payload);
 });
 
 app.post("/api/projects", async (req, res) => {
@@ -1815,6 +1898,7 @@ app.post("/api/projects", async (req, res) => {
     ownerUsername: req.authUser.username,
     accessList: [],
   });
+  await invalidateApiCache();
   return res.status(201).json({
     data: toProjectResponse(project, undefined, req.authUser),
   });
@@ -1843,6 +1927,7 @@ app.delete("/api/projects/:id", async (req, res) => {
 
   const deletedRuns = await TestRun.deleteMany({ projectId });
   await Project.deleteOne({ _id: projectId });
+  await invalidateApiCache();
 
   return res.json({
     success: true,
@@ -1851,20 +1936,30 @@ app.delete("/api/projects/:id", async (req, res) => {
 });
 
 app.get("/api/users/search", async (req, res) => {
-  const query = String(req.query.q ?? "").trim();
+  const query = normalizeUsername(req.query.q);
   if (query.length < 2) {
     return res.json({ data: [] });
   }
 
-  const matcher = new RegExp(escapeRegex(query), "i");
+  const cacheKey = buildCacheKey("users-search", req.authUser, { q: query });
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  const matcher = new RegExp(`^${escapeRegex(query)}`);
   const users = await User.find({
-    $or: [{ username: { $regex: matcher } }, { email: { $regex: matcher } }],
+    $or: [
+      { username: { $regex: matcher } },
+      { email: { $regex: matcher } },
+      { githubUsername: { $regex: matcher } },
+    ],
   })
-    .sort({ createdAt: -1 })
+    .select({ username: 1, email: 1, avatarDataUrl: 1, githubId: 1, githubUsername: 1 })
     .limit(8)
     .lean();
 
-  return res.json({
+  const payload = {
     data: users.map((user) => ({
       id: user._id.toString(),
       username: user.username,
@@ -1872,7 +1967,10 @@ app.get("/api/users/search", async (req, res) => {
       avatarDataUrl: user.avatarDataUrl ?? "",
       githubLinked: Boolean(user.githubId),
     })),
-  });
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.usersSearch);
+  return res.json(payload);
 });
 
 app.get("/api/projects/:id/access", async (req, res) => {
@@ -1886,6 +1984,12 @@ app.get("/api/projects/:id/access", async (req, res) => {
     return res.status(accessResult.error.status).json({ error: accessResult.error.message });
   }
 
+  const cacheKey = buildCacheKey("project-access", req.authUser, { projectId });
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
   const project = accessResult.project.toObject();
   const sharedEmails = [...new Set((project.accessList ?? []).map((entry) => normalizeEmail(entry.email)).filter(Boolean))];
   const linkedUsers = sharedEmails.length
@@ -1895,7 +1999,7 @@ app.get("/api/projects/:id/access", async (req, res) => {
     : [];
   const usersByEmail = new Map(linkedUsers.map((user) => [normalizeEmail(user.email), user]));
 
-  return res.json({
+  const payload = {
     data: {
       projectId,
       owner: {
@@ -1911,7 +2015,10 @@ app.get("/api/projects/:id/access", async (req, res) => {
         toSharedMemberResponse(project, entry, usersByEmail.get(normalizeEmail(entry.email))),
       ),
     },
-  });
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.projectAccess);
+  return res.json(payload);
 });
 
 app.post("/api/projects/:id/access", async (req, res) => {
@@ -1952,6 +2059,7 @@ app.post("/api/projects/:id/access", async (req, res) => {
   }
 
   await project.save();
+  await invalidateApiCache();
 
   return res.status(201).json({
     data: {
@@ -1992,6 +2100,7 @@ app.delete("/api/projects/:id/access", async (req, res) => {
   }
 
   await project.save();
+  await invalidateApiCache();
 
   return res.json({
     success: true,
@@ -2018,6 +2127,7 @@ app.post("/api/tests/run", async (req, res) => {
   }
 
   const testRun = await TestRun.create(value);
+  await invalidateApiCache();
 
   void startK6Run(testRun).catch(async (runnerError) => {
     await TestRun.updateOne(
@@ -2048,10 +2158,11 @@ app.get("/api/tests/history", async (req, res) => {
 
   const filter = {};
   if (search) {
+    const safeSearch = escapeRegex(search);
     filter.$or = [
-      { name: { $regex: search, $options: "i" } },
-      { targetUrl: { $regex: search, $options: "i" } },
-      { type: { $regex: search, $options: "i" } },
+      { name: { $regex: safeSearch, $options: "i" } },
+      { targetUrl: { $regex: safeSearch, $options: "i" } },
+      { type: { $regex: safeSearch, $options: "i" } },
     ];
   }
   if (status) {
@@ -2069,12 +2180,34 @@ app.get("/api/tests/history", async (req, res) => {
     filter.projectId = { $in: allowedProjectIds };
   }
 
+  const cacheKey = buildCacheKey("tests-history", req.authUser, {
+    search,
+    status,
+    projectId,
+    limit,
+  });
+  const hasAnyVisibleLiveRuns = getActiveRunSnapshots(projectId || undefined).some((snapshot) =>
+    canViewProject(req.authUser, snapshot.projectId),
+  );
+  if (!hasAnyVisibleLiveRuns) {
+    const cached = await getCachedJson(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+  }
+
   const runs = await TestRun.find(filter).sort({ createdAt: -1 }).limit(limit).lean();
   const total = await TestRun.countDocuments(filter);
-  res.json({
+  const payload = {
     data: runs.map(toHistoryItem),
     total,
-  });
+  };
+
+  if (!hasAnyVisibleLiveRuns) {
+    await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.testsHistory);
+  }
+
+  return res.json(payload);
 });
 
 app.delete("/api/tests/history", async (req, res) => {
@@ -2095,6 +2228,7 @@ app.delete("/api/tests/history", async (req, res) => {
   }
 
   const result = await TestRun.deleteMany(filter);
+  await invalidateApiCache();
   res.json({
     deletedCount: result.deletedCount ?? 0,
     message: "Completed test history cleared.",
@@ -2125,6 +2259,8 @@ app.delete("/api/tests/:id", async (req, res) => {
     return res.status(404).json({ error: "Test run not found." });
   }
 
+  await invalidateApiCache();
+
   return res.json({ success: true });
 });
 
@@ -2142,7 +2278,15 @@ app.get("/api/tests/:id", async (req, res) => {
     return res.status(403).json({ error: "You do not have permission to view this test run." });
   }
 
-  return res.json({
+  const cacheKey = buildCacheKey("test-detail", req.authUser, { runId });
+  if (!["running", "queued"].includes(String(run.status ?? ""))) {
+    const cached = await getCachedJson(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
+  }
+
+  const payload = {
     data: {
       ...toHistoryItem(run),
       finalMetrics: run.finalMetrics ?? null,
@@ -2150,7 +2294,13 @@ app.get("/api/tests/:id", async (req, res) => {
       errorMessage: run.errorMessage ?? null,
       script: run.script,
     },
-  });
+  };
+
+  if (!["running", "queued"].includes(String(run.status ?? ""))) {
+    await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.testDetail);
+  }
+
+  return res.json(payload);
 });
 
 app.get("/api/dashboard/overview", async (req, res) => {
@@ -2164,11 +2314,20 @@ app.get("/api/dashboard/overview", async (req, res) => {
     return res.status(403).json({ error: "You do not have permission to view this project dashboard." });
   }
 
+  const cacheKey = buildCacheKey("dashboard-overview", req.authUser, { projectId: hasProjectFilter ? projectId : "" });
+
   const queryFilter = hasProjectFilter ? { projectId } : allowedProjectIds === null ? {} : { projectId: { $in: allowedProjectIds } };
 
   let liveSnapshots = getActiveRunSnapshots(hasProjectFilter ? projectId : undefined);
   if (!hasProjectFilter && allowedProjectIds !== null) {
     liveSnapshots = liveSnapshots.filter((snapshot) => canViewProject(req.authUser, snapshot.projectId));
+  }
+
+  if (liveSnapshots.length === 0) {
+    const cached = await getCachedJson(cacheKey);
+    if (cached) {
+      return res.json(cached);
+    }
   }
 
   const [recentRuns, allRunsForStats] = await Promise.all([
@@ -2189,11 +2348,14 @@ app.get("/api/dashboard/overview", async (req, res) => {
   const latestRun = recentRuns[0] ?? null;
   const latestPayload = toDashboardResponseFromRun(latestRun);
   const compiledKpis = toCompiledProjectKpis(allRunsForStats, latestPayload.kpis);
-  return res.json({
+  const payload = {
     ...latestPayload,
     kpis: compiledKpis,
     recentRuns: recentRuns.map(toHistoryItem),
-  });
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.dashboard);
+  return res.json(payload);
 });
 
 io.on("connection", (socket) => {

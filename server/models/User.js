@@ -5,7 +5,6 @@ const userSchema = new mongoose.Schema(
     username: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       lowercase: true,
       minlength: 3,
@@ -14,12 +13,11 @@ const userSchema = new mongoose.Schema(
     email: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
       lowercase: true,
       maxlength: 180,
     },
-    githubId: { type: String, default: "", unique: true, sparse: true },
+    githubId: { type: String, default: "" },
     githubUsername: { type: String, default: "", trim: true, lowercase: true, maxlength: 80 },
     avatarDataUrl: { type: String, default: "", maxlength: 1_500_000 },
     passwordHash: { type: String, default: "" },
@@ -32,5 +30,12 @@ const userSchema = new mongoose.Schema(
   },
   { timestamps: true },
 );
+
+userSchema.index({ username: 1 }, { unique: true });
+userSchema.index({ email: 1 }, { unique: true });
+userSchema.index({ githubId: 1 }, { unique: true, sparse: true });
+userSchema.index({ githubUsername: 1 });
+userSchema.index({ isAdmin: 1, isActive: 1 });
+userSchema.index({ createdAt: -1 });
 
 export const User = mongoose.model("User", userSchema);

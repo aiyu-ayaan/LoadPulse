@@ -6,7 +6,6 @@ const projectAccessSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       default: null,
-      index: true,
     },
     email: { type: String, required: true, trim: true, lowercase: true, maxlength: 180 },
     username: { type: String, default: "", trim: true, lowercase: true, maxlength: 80 },

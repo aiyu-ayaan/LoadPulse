@@ -13,6 +13,8 @@ FROM node:20-bookworm-slim AS runtime
 WORKDIR /app
 
 ARG BACKEND_PORT=4000
+ENV REDIS_URL=""
+ENV REDIS_DEFAULT_TTL_SECONDS=30
 
 COPY package*.json ./
 RUN npm ci --omit=dev
