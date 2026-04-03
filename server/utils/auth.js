@@ -64,9 +64,6 @@ export const canViewProject = (user, projectId) => {
   if (!projectId) {
     return false;
   }
-  if (user?.isAdmin) {
-    return true;
-  }
 
   const key = normalizeProjectId(projectId);
   return (user?.projectPermissions ?? []).some(
@@ -78,9 +75,6 @@ export const canRunProject = (user, projectId) => {
   if (!projectId) {
     return false;
   }
-  if (user?.isAdmin) {
-    return true;
-  }
 
   const key = normalizeProjectId(projectId);
   return (user?.projectPermissions ?? []).some(
@@ -89,8 +83,8 @@ export const canRunProject = (user, projectId) => {
 };
 
 export const getViewableProjectIds = (user) => {
-  if (!user || user.isAdmin) {
-    return null;
+  if (!user) {
+    return [];
   }
   return (user.projectPermissions ?? [])
     .filter((permission) => Boolean(permission.canView || permission.canRun))
@@ -98,8 +92,8 @@ export const getViewableProjectIds = (user) => {
 };
 
 export const getRunnableProjectIds = (user) => {
-  if (!user || user.isAdmin) {
-    return null;
+  if (!user) {
+    return [];
   }
   return (user.projectPermissions ?? [])
     .filter((permission) => Boolean(permission.canRun))

@@ -620,15 +620,6 @@ const getUserIdentity = (userLike) => ({
 
 const resolveProjectAccess = (project, userLike) => {
   const identity = getUserIdentity(userLike);
-  if (identity.isAdmin) {
-    return {
-      canView: true,
-      canRun: true,
-      canManage: true,
-      isOwner: false,
-    };
-  }
-
   const ownerId = toObjectIdString(project?.ownerUserId);
   const isOwner = Boolean(identity.id && ownerId === identity.id);
   if (isOwner) {
@@ -669,9 +660,6 @@ const buildProjectAccessQuery = (userLike, { requireRun = false } = {}) => {
   const identity = getUserIdentity(userLike);
   if (!identity.id && !identity.email) {
     return { _id: { $in: [] } };
-  }
-  if (identity.isAdmin) {
-    return {};
   }
 
   const identityMatches = [];
