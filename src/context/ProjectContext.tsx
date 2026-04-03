@@ -3,15 +3,10 @@ import { createProject, deleteProject, fetchProjects, type Project } from "../li
 import { ProjectContext, type ProjectContextValue } from "./project-context";
 import { useAuth } from "./useAuth";
 
-const STORAGE_KEY = "loadpulse.selectedProjectId";
-
 export const ProjectProvider = ({ children }: { children: ReactNode }) => {
   const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored && stored.trim() ? stored : null;
-  });
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,23 +43,18 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
     }
     setProjects([]);
     setSelectedProjectId(null);
-    localStorage.removeItem(STORAGE_KEY);
   }, [isAuthenticated]);
 
   useEffect(() => {
     if (projects.length === 0) {
       if (selectedProjectId !== null) {
         setSelectedProjectId(null);
-        localStorage.removeItem(STORAGE_KEY);
       }
       return;
     }
 
-    const stillExists = projects.some((project) => project.id === selectedProjectId);
-    if (!stillExists) {
-      const fallbackId = projects[0].id;
-      setSelectedProjectId(fallbackId);
-      localStorage.setItem(STORAGE_KEY, fallbackId);
+    if (selectedProjectId && !projects.some((project) => project.id === selectedProjectId)) {
+      setSelectedProjectId(null);
     }
   }, [projects, selectedProjectId]);
 
@@ -75,7 +65,6 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
 
   const selectProject = useCallback((projectId: string) => {
     setSelectedProjectId(projectId);
-    localStorage.setItem(STORAGE_KEY, projectId);
   }, []);
 
   const createAndSelectProject = useCallback(
@@ -84,7 +73,6 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       const createdProject = response.data;
       setProjects((previous) => [createdProject, ...previous]);
       setSelectedProjectId(createdProject.id);
-      localStorage.setItem(STORAGE_KEY, createdProject.id);
       return createdProject;
     },
     [],
@@ -96,7 +84,6 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       setProjects((previousProjects) => previousProjects.filter((project) => project.id !== projectId));
       if (selectedProjectId === projectId) {
         setSelectedProjectId(null);
-        localStorage.removeItem(STORAGE_KEY);
       }
     },
     [selectedProjectId],
@@ -114,7 +101,17 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       createAndSelectProject,
       deleteProjectById,
     }),
-    [projects, selectedProject, selectedProjectId, isLoading, error, refreshProjects, selectProject, createAndSelectProject, deleteProjectById],
+    [
+      projects,
+      selectedProject,
+      selectedProjectId,
+      isLoading,
+      error,
+      refreshProjects,
+      selectProject,
+      createAndSelectProject,
+      deleteProjectById,
+    ],
   );
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

@@ -22,6 +22,7 @@ import { EmptyState } from "../components/EmptyState";
 import { useNavigate } from "react-router-dom";
 import { fetchDashboardOverview, getAuthToken, socketUrl, type DashboardOverview } from "../lib/api";
 import { useProjects } from "../context/useProjects";
+import { buildProjectTestPath } from "../lib/project-routes";
 
 const compactFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -233,7 +234,7 @@ export const DashboardPage = () => {
             {overview.runningTests.map((test) => (
               <button
                 key={test.id}
-                onClick={() => navigate(`/tests/${test.id}`)}
+                onClick={() => selectedProject && navigate(buildProjectTestPath(selectedProject.id, test.id))}
                 className="glass-panel rounded-2xl border border-primary/30 bg-primary/10 p-4 text-left transition hover:border-primary/50 hover:bg-primary/15"
               >
                 <div className="flex items-start justify-between gap-3">
@@ -521,7 +522,7 @@ export const DashboardPage = () => {
                 {overview.recentRuns.slice(0, 5).map((run) => (
                   <button
                     key={run.id}
-                    onClick={() => navigate(`/tests/${run.id}`)}
+                    onClick={() => selectedProject && navigate(buildProjectTestPath(selectedProject.id, run.id))}
                     className="w-full rounded-xl bg-white/[0.04] px-3 py-2 text-left text-slate-300 transition hover:bg-white/[0.08]"
                   >
                     <div className="flex items-start justify-between gap-3">

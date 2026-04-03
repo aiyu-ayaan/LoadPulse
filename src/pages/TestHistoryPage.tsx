@@ -6,6 +6,7 @@ import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
 import { clearHistory, deleteTestRun, fetchTestHistory, type TestHistoryItem } from "../lib/api";
 import { useProjects } from "../context/useProjects";
+import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
 
 const formatDateTime = (value: string | null) => {
   if (!value) {
@@ -117,7 +118,7 @@ export const TestHistoryPage = () => {
           </button>
 
           <button
-            onClick={() => navigate("/new-test")}
+            onClick={() => selectedProject && navigate(buildProjectSectionPath(selectedProject.id, "new-test"))}
             className="bg-primary text-white flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-primary/90 transition-all"
           >
             <Play className="w-4 h-4" /> Start New
@@ -142,7 +143,7 @@ export const TestHistoryPage = () => {
           title="No tests yet"
           description="Run your first performance test from the New Test page."
           actionText="Run Your First Test"
-          onAction={() => navigate("/new-test")}
+          onAction={() => navigate(buildProjectSectionPath(selectedProject.id, "new-test"))}
         />
       ) : (
         <div className="glass-panel overflow-hidden rounded-2xl border border-white/10">
@@ -196,7 +197,7 @@ export const TestHistoryPage = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
-                          onClick={() => navigate(`/tests/${test.id}`)}
+                          onClick={() => navigate(buildProjectTestPath(selectedProject.id, test.id))}
                           className="h-9 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-2"
                         >
                           <ExternalLink className="w-3.5 h-3.5" /> View
@@ -229,4 +230,3 @@ export const TestHistoryPage = () => {
     </div>
   );
 };
-

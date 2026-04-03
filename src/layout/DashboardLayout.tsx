@@ -24,24 +24,20 @@ import { useProjects } from "../context/useProjects";
 import { useAuth } from "../context/useAuth";
 import { UserAvatar } from "../components/UserAvatar";
 import { useNotifications } from "../context/useNotifications";
+import {
+  buildProjectSectionPath,
+  getPathForProjectSwitch,
+  getTitleFromPathname,
+  type ProjectSection,
+} from "../lib/project-routes";
 
-const menuItems = [
-  { icon: FolderKanban, label: "Projects", path: "/projects" },
-  { icon: LayoutDashboard, label: "Dashboard", path: "/dashboard" },
-  { icon: PlusCircle, label: "New Test", path: "/new-test" },
-  { icon: History, label: "Test History", path: "/history" },
-  { icon: BarChart3, label: "Reports", path: "/reports" },
-  { icon: Settings, label: "Settings", path: "/settings" },
+const projectMenuItems: Array<{ icon: typeof LayoutDashboard; label: string; section: ProjectSection }> = [
+  { icon: LayoutDashboard, label: "Dashboard", section: "dashboard" },
+  { icon: PlusCircle, label: "New Test", section: "new-test" },
+  { icon: History, label: "Test History", section: "history" },
+  { icon: BarChart3, label: "Reports", section: "reports" },
+  { icon: Settings, label: "Settings", section: "settings" },
 ];
-
-const pageTitleMap: Record<string, string> = {
-  "/projects": "Projects",
-  "/dashboard": "Dashboard",
-  "/new-test": "New Test",
-  "/history": "Test History",
-  "/reports": "Reports",
-  "/settings": "Settings",
-};
 
 export const DashboardLayout = () => {
   const navigate = useNavigate();
@@ -133,26 +129,39 @@ export const DashboardLayout = () => {
           </div>
 
           <nav className="space-y-1.5">
-            {menuItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                className={({ isActive }) =>
-                  `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${
-                    isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
-                  }`
-                }
-              >
-                <item.icon className="h-4 w-4" />
-                {item.label}
-              </NavLink>
-            ))}
+            <NavLink
+              to="/projects"
+              className={({ isActive }) =>
+                `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${
+                  isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
+                }`
+              }
+            >
+              <FolderKanban className="h-4 w-4" />
+              Projects
+            </NavLink>
+
+            {selectedProjectId &&
+              projectMenuItems.map((item) => (
+                <NavLink
+                  key={item.section}
+                  to={buildProjectSectionPath(selectedProjectId, item.section)}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${
+                      isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
+                    }`
+                  }
+                >
+                  <item.icon className="h-4 w-4" />
+                  {item.label}
+                </NavLink>
+              ))}
           </nav>
 
           <div className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-3">
             <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Selected Project</p>
-            <p className="mt-2 truncate text-sm font-semibold text-white">{selectedProject?.name ?? "No project"}</p>
-            <p className="mt-1 truncate text-xs text-slate-400">{selectedProject?.baseUrl ?? "Create a project to start."}</p>
+            <p className="mt-2 truncate text-sm font-semibold text-white">{selectedProject?.name ?? "No project selected"}</p>
+            <p className="mt-1 truncate text-xs text-slate-400">{selectedProject?.baseUrl ?? "Choose one from Projects."}</p>
           </div>
         </aside>
 
@@ -169,7 +178,7 @@ export const DashboardLayout = () => {
               </button>
               <p className="text-sm font-medium text-slate-300">LoadPulse</p>
               <span className="text-slate-600">/</span>
-              <h1 className="text-base font-semibold text-white md:text-lg">{pageTitleMap[location.pathname] ?? "Workspace"}</h1>
+              <h1 className="text-base font-semibold text-white md:text-lg">{getTitleFromPathname(location.pathname)}</h1>
             </div>
 
             <div className="flex items-center gap-2 md:gap-3">
@@ -177,7 +186,7 @@ export const DashboardLayout = () => {
                 <button
                   type="button"
                   onClick={() => setIsProjectMenuOpen((previous) => !previous)}
-                  className="flex min-w-[140px] max-w-[170px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-sm text-slate-100 transition hover:bg-white/[0.08] md:min-w-[200px] md:max-w-none"
+                  className="flex min-w-[140px] max-w-[170px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-sm text-slate-100 transition hover:bg-white/[0.08] md:min-w-[220px] md:max-w-none"
                 >
                   <span className="truncate">{selectedProject?.name ?? "Select project"}</span>
                   <ChevronDown
@@ -200,6 +209,7 @@ export const DashboardLayout = () => {
                             onClick={() => {
                               selectProject(project.id);
                               setIsProjectMenuOpen(false);
+                              void navigate(getPathForProjectSwitch(location.pathname, project.id));
                             }}
                             className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${
                               isSelected ? "bg-primary/20 text-white" : "text-slate-200 hover:bg-white/[0.08]"

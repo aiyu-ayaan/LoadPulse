@@ -16,6 +16,7 @@ import { AdminAccountsPage } from './pages/admin/AdminAccountsPage';
 import { AdminQueuePage } from './pages/admin/AdminQueuePage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAboutPage } from './pages/admin/AdminAboutPage';
+import { NotFoundPage } from './pages/NotFoundPage';
 import { useAuth } from './context/useAuth';
 
 const RequireAuth = ({ children }: { children: ReactElement }) => {
@@ -77,19 +78,21 @@ function App() {
           <Route path="queue" element={<AdminQueuePage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
           <Route path="about" element={<AdminAboutPage />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
         <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />
-          <Route path="/dashboard" element={<ProjectRequired><DashboardPage /></ProjectRequired>} />
-          <Route path="/new-test" element={<ProjectRequired><NewTestPage /></ProjectRequired>} />
-          <Route path="/history" element={<ProjectRequired><TestHistoryPage /></ProjectRequired>} />
-          <Route path="/tests/:testId" element={<ProjectRequired><TestDetailsPage /></ProjectRequired>} />
-          <Route path="/reports" element={<ProjectRequired><ReportsPage /></ProjectRequired>} />
-          <Route path="/integrations" element={<Navigate to="/settings" replace />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/projects/:projectId/dashboard" element={<ProjectRequired><DashboardPage /></ProjectRequired>} />
+          <Route path="/projects/:projectId/new-test" element={<ProjectRequired><NewTestPage /></ProjectRequired>} />
+          <Route path="/projects/:projectId/history" element={<ProjectRequired><TestHistoryPage /></ProjectRequired>} />
+          <Route path="/projects/:projectId/tests/:testId" element={<ProjectRequired><TestDetailsPage /></ProjectRequired>} />
+          <Route path="/projects/:projectId/reports" element={<ProjectRequired><ReportsPage /></ProjectRequired>} />
+          <Route path="/projects/:projectId/settings" element={<ProjectRequired><SettingsPage /></ProjectRequired>} />
+          <Route path="/integrations" element={<Navigate to="/projects" replace />} />
+          <Route path="*" element={<NotFoundPage />} />
         </Route>
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );

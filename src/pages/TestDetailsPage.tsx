@@ -26,7 +26,7 @@ const toStatusData = (detail: TestRunDetail | null) => {
 
 export const TestDetailsPage = () => {
   const navigate = useNavigate();
-  const { testId } = useParams();
+  const { testId, projectId } = useParams<{ testId: string; projectId: string }>();
   const [detail, setDetail] = useState<TestRunDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,7 +87,17 @@ export const TestDetailsPage = () => {
   return (
     <div className="space-y-6 pb-10">
       <button
-        onClick={() => navigate(-1)}
+        onClick={() => {
+          if (window.history.length > 1) {
+            navigate(-1);
+            return;
+          }
+          if (projectId) {
+            navigate(`/projects/${projectId}/history`);
+            return;
+          }
+          navigate("/projects");
+        }}
         className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.05] px-4 py-2 text-sm text-slate-200 hover:bg-white/[0.08]"
       >
         <ArrowLeft className="h-4 w-4" />

@@ -4,6 +4,7 @@ import { getAuthToken, socketUrl } from "../lib/api";
 import { useAuth } from "./useAuth";
 import { useProjects } from "./useProjects";
 import { NotificationContext, type AppNotification, type NotificationContextValue } from "./notification-context";
+import { buildProjectTestPath } from "../lib/project-routes";
 
 const MAX_NOTIFICATIONS = 25;
 
@@ -131,7 +132,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
           message: `${snapshot.currentRun?.name ?? "A test"} is now running for ${resolveProjectName(snapshot.projectId)}.`,
           projectId: snapshot.projectId,
           runId,
-          link: `/tests/${runId}`,
+          link: snapshot.projectId ? buildProjectTestPath(snapshot.projectId, runId) : "/projects",
         });
       },
     );
@@ -155,7 +156,7 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
             : `${eventPayload.runName ?? "A test"} failed for ${resolveProjectName(eventPayload.projectId)}.${eventPayload.errorMessage ? ` ${eventPayload.errorMessage}` : ""}`,
           projectId: eventPayload.projectId,
           runId,
-          link: `/tests/${runId}`,
+          link: eventPayload.projectId ? buildProjectTestPath(eventPayload.projectId, runId) : "/projects",
         });
       },
     );

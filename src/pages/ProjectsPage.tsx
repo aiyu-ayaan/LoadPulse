@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { buildProjectSectionPath } from "../lib/project-routes";
 
 export const ProjectsPage = () => {
   const navigate = useNavigate();
@@ -25,7 +26,7 @@ export const ProjectsPage = () => {
       setName("");
       setBaseUrl(created.baseUrl);
       setDescription("");
-      navigate("/dashboard");
+      navigate(buildProjectSectionPath(created.id, "dashboard"));
     } catch (requestError) {
       setFormError(requestError instanceof Error ? requestError.message : "Unable to create project.");
     } finally {
@@ -136,7 +137,10 @@ export const ProjectsPage = () => {
               {projects.map((project) => (
                 <button
                   key={project.id}
-                  onClick={() => selectProject(project.id)}
+                  onClick={() => {
+                    selectProject(project.id);
+                    navigate(buildProjectSectionPath(project.id, "dashboard"));
+                  }}
                   className={`glass-panel rounded-2xl border p-5 text-left transition ${selectedProjectId === project.id ? "border-primary/40 bg-primary/10" : "border-white/10 hover:border-primary/30"
                     }`}
                 >
@@ -185,7 +189,7 @@ export const ProjectsPage = () => {
                       onClick={(event) => {
                         event.stopPropagation();
                         selectProject(project.id);
-                        navigate(project.access.canRun ? "/new-test" : "/dashboard");
+                        navigate(buildProjectSectionPath(project.id, project.access.canRun ? "new-test" : "dashboard"));
                       }}
                       className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white"
                     >
@@ -196,7 +200,7 @@ export const ProjectsPage = () => {
                       onClick={(event) => {
                         event.stopPropagation();
                         selectProject(project.id);
-                        navigate("/dashboard");
+                        navigate(buildProjectSectionPath(project.id, "dashboard"));
                       }}
                       className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200"
                     >
@@ -208,7 +212,7 @@ export const ProjectsPage = () => {
                         onClick={(event) => {
                           event.stopPropagation();
                           selectProject(project.id);
-                          navigate("/settings");
+                          navigate(buildProjectSectionPath(project.id, "settings"));
                         }}
                         className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-xs font-semibold text-slate-200"
                       >

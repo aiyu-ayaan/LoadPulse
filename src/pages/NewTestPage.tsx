@@ -7,6 +7,7 @@ import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
 import { useNotifications } from "../context/useNotifications";
 import { ScriptEditor } from "../components/ScriptEditor";
+import { buildProjectTestPath } from "../lib/project-routes";
 
 const buildTemplateScript = (url: string, vus: number, duration: string) => `import http from 'k6/http';
 import { sleep, check } from 'k6';
@@ -90,10 +91,10 @@ export const NewTestPage = () => {
         message: `${name} was queued for ${selectedProject.name}. We'll notify you when it starts and finishes.`,
         projectId: selectedProject.id,
         runId: run.id,
-        link: `/tests/${run.id}`,
+        link: buildProjectTestPath(selectedProject.id, run.id),
       });
       setSuccessMessage("Test started. Opening test details...");
-      navigate(`/tests/${run.id}`);
+      navigate(buildProjectTestPath(selectedProject.id, run.id));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to run test.");
     } finally {
@@ -289,4 +290,3 @@ export const NewTestPage = () => {
     </div>
   );
 };
-
