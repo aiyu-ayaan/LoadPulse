@@ -93,13 +93,13 @@ export const IntegrationsPage = () => {
   const [name, setName] = useState("Nightly Homepage Check");
   const [targetUrl, setTargetUrl] = useState(selectedProject?.baseUrl ?? "https://");
   const [type, setType] = useState("Load");
+  const [triggerType, setTriggerType] = useState<"cron" | "api">("cron");
   const [region, setRegion] = useState("us-east-1");
   const [vus, setVus] = useState(20);
   const [duration, setDuration] = useState("30s");
   const [cronExpression, setCronExpression] = useState("*/15 * * * *");
   const [timezone, setTimezone] = useState("UTC");
   const [isEnabled, setIsEnabled] = useState(true);
-  const [allowApiTrigger, setAllowApiTrigger] = useState(true);
   const [script, setScript] = useState(buildTemplateScript(selectedProject?.baseUrl ?? "https://", 20, "30s"));
   const [isScriptDirty, setIsScriptDirty] = useState(false);
 
@@ -112,13 +112,13 @@ export const IntegrationsPage = () => {
       setName("Nightly Homepage Check");
       setTargetUrl(projectBaseUrl);
       setType("Load");
+      setTriggerType("cron");
       setRegion("us-east-1");
       setVus(20);
       setDuration("30s");
       setCronExpression("*/15 * * * *");
       setTimezone("UTC");
       setIsEnabled(true);
-      setAllowApiTrigger(true);
       setScript(buildTemplateScript(projectBaseUrl, 20, "30s"));
       setIsScriptDirty(false);
     },
@@ -180,14 +180,14 @@ export const IntegrationsPage = () => {
       name,
       targetUrl,
       type,
+      triggerType,
       region,
       vus,
       duration,
       script: isScriptDirty ? script : "",
-      cronExpression,
+      cronExpression: triggerType === "cron" ? cronExpression : "",
       timezone,
       isEnabled,
-      allowApiTrigger,
     };
 
     try {
@@ -211,13 +211,13 @@ export const IntegrationsPage = () => {
     setName(item.name);
     setTargetUrl(item.targetUrl);
     setType(item.type);
+    setTriggerType(item.triggerType);
     setRegion(item.region);
     setVus(item.vus);
     setDuration(item.duration);
     setCronExpression(item.cronExpression);
     setTimezone(item.timezone);
     setIsEnabled(item.isEnabled);
-    setAllowApiTrigger(item.allowApiTrigger);
     setScript(item.script);
     setIsScriptDirty(true);
     setPlainToken("");
@@ -268,6 +268,7 @@ export const IntegrationsPage = () => {
         name: item.name,
         targetUrl: item.targetUrl,
         type: item.type,
+        triggerType: item.triggerType,
         region: item.region,
         vus: item.vus,
         duration: item.duration,
@@ -275,7 +276,6 @@ export const IntegrationsPage = () => {
         cronExpression: item.cronExpression,
         timezone: item.timezone,
         isEnabled: !item.isEnabled,
-        allowApiTrigger: item.allowApiTrigger,
       });
       await loadIntegrations();
     } catch (requestError) {
@@ -490,50 +490,66 @@ export const IntegrationsPage = () => {
               </label>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1">
-                <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Cron Expression</span>
-                <div className="relative">
-                  <AlarmClock className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-                  <input
-                    value={cronExpression}
-                    onChange={(event) => setCronExpression(event.target.value)}
-                    placeholder="*/15 * * * *"
-                    className="w-full rounded-xl border border-white/10 bg-black/20 py-2 pl-9 pr-3 text-sm text-slate-100 outline-none focus:border-primary/60"
-                  />
-                </div>
-              </label>
+            <label className="space-y-1">
+              <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Trigger Mode</span>
+              <select
+                value={triggerType}
+                onChange={(event) => setTriggerType(event.target.value === "api" ? "api" : "cron")}
+                className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-primary/60"
+              >
+                <option value="cron">Cron Schedule (automatic)</option>
+                <option value="api">API Hook (external trigger)</option>
+              </select>
+            </label>
 
-              <label className="space-y-1">
-                <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Timezone</span>
-                <input
-                  value={timezone}
-                  onChange={(event) => setTimezone(event.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-primary/60"
-                />
-              </label>
-            </div>
+            {triggerType === "cron" ? (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="space-y-1">
+                  <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Cron Expression</span>
+                  <div className="relative">
+                    <AlarmClock className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
+                    <input
+                      value={cronExpression}
+                      onChange={(event) => setCronExpression(event.target.value)}
+                      placeholder="*/15 * * * *"
+                      className="w-full rounded-xl border border-white/10 bg-black/20 py-2 pl-9 pr-3 text-sm text-slate-100 outline-none focus:border-primary/60"
+                    />
+                  </div>
+                </label>
+
+                <label className="space-y-1">
+                  <span className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Timezone</span>
+                  <input
+                    value={timezone}
+                    onChange={(event) => setTimezone(event.target.value)}
+                    className="w-full rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none focus:border-primary/60"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-primary/30 bg-primary/10 px-3 py-2 text-xs text-primary">
+                API mode does not use cron schedule. This trigger runs only when your external system calls the hook endpoint.
+              </div>
+            )}
 
             <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200">
               <input type="checkbox" checked={isEnabled} onChange={(event) => setIsEnabled(event.target.checked)} />
               Enable cron schedule
             </label>
 
-            <label className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-200">
-              <input type="checkbox" checked={allowApiTrigger} onChange={(event) => setAllowApiTrigger(event.target.checked)} />
-              Allow API trigger endpoint
-            </label>
           </div>
 
           <div className="rounded-xl border border-white/10 bg-[#050816]">
             <div className="border-b border-white/10 px-4 py-2 text-sm font-semibold text-slate-200">k6 Script</div>
-            <ScriptEditor
-              value={script}
-              onChange={(nextValue) => {
-                setScript(nextValue);
-                setIsScriptDirty(true);
-              }}
-            />
+            <div className="relative h-[360px]">
+              <ScriptEditor
+                value={script}
+                onChange={(nextValue) => {
+                  setScript(nextValue);
+                  setIsScriptDirty(true);
+                }}
+              />
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -595,10 +611,10 @@ export const IntegrationsPage = () => {
 
                   <div className="grid gap-2 text-xs text-slate-300 md:grid-cols-2">
                     <p>
-                      <span className="text-slate-500">Cron:</span> <code>{item.cronExpression}</code>
+                      <span className="text-slate-500">Trigger:</span> {item.triggerType.toUpperCase()}
                     </p>
                     <p>
-                      <span className="text-slate-500">Timezone:</span> {item.timezone}
+                      <span className="text-slate-500">Mode:</span> {item.triggerType === "cron" ? "Automatic schedule" : "External API"}
                     </p>
                     <p>
                       <span className="text-slate-500">Load:</span> {item.vus} VUs • {item.duration}
@@ -606,10 +622,21 @@ export const IntegrationsPage = () => {
                     <p>
                       <span className="text-slate-500">Last Trigger:</span> {toDateLabel(item.lastTriggeredAt)}
                     </p>
-                    <p className="md:col-span-2">
-                      <span className="text-slate-500">Hook:</span> {tokenHookBaseUrl}
-                      <code>{item.hookPath}</code>
-                    </p>
+                    {item.triggerType === "cron" ? (
+                      <>
+                        <p>
+                          <span className="text-slate-500">Cron:</span> <code>{item.cronExpression}</code>
+                        </p>
+                        <p>
+                          <span className="text-slate-500">Timezone:</span> {item.timezone}
+                        </p>
+                      </>
+                    ) : (
+                      <p className="md:col-span-2">
+                        <span className="text-slate-500">Hook:</span> {tokenHookBaseUrl}
+                        <code>{item.hookPath}</code>
+                      </p>
+                    )}
                   </div>
 
                   {item.lastError && <p className="text-xs text-rose-300">{item.lastError}</p>}
@@ -629,7 +656,7 @@ export const IntegrationsPage = () => {
                       onClick={() => void handleToggleEnabled(item)}
                       className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-semibold text-slate-200 hover:bg-white/[0.08] disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {item.isEnabled ? "Disable Schedule" : "Enable Schedule"}
+                      {item.isEnabled ? "Disable Trigger" : "Enable Trigger"}
                     </button>
                     <button
                       type="button"

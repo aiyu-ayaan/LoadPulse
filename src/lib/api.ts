@@ -272,7 +272,7 @@ export interface ProjectIntegration {
   vus: number;
   duration: string;
   script: string;
-  triggerType: "cron";
+  triggerType: "cron" | "api";
   cronExpression: string;
   timezone: string;
   isEnabled: boolean;
@@ -533,11 +533,10 @@ export const createProjectIntegration = (
     vus: number;
     duration: string;
     script: string;
-    triggerType?: "cron";
-    cronExpression: string;
+    triggerType?: "cron" | "api";
+    cronExpression?: string;
     timezone?: string;
     isEnabled?: boolean;
-    allowApiTrigger?: boolean;
   },
 ) =>
   request<{ data: ProjectIntegration }>(`/api/projects/${encodeURIComponent(projectId)}/integrations`, {
@@ -556,11 +555,10 @@ export const updateProjectIntegration = (
     vus: number;
     duration: string;
     script: string;
-    triggerType?: "cron";
-    cronExpression: string;
+    triggerType?: "cron" | "api";
+    cronExpression?: string;
     timezone?: string;
     isEnabled?: boolean;
-    allowApiTrigger?: boolean;
   },
 ) =>
   request<{ data: ProjectIntegration }>(

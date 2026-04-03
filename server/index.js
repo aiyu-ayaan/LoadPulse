@@ -499,23 +499,21 @@ const validateIntegrationPayload = (payload, project) => {
   const cronExpression = String(payload?.cronExpression ?? "").trim();
   const timezone = String(payload?.timezone ?? "UTC").trim() || "UTC";
   const isEnabled = payload?.isEnabled === undefined ? true : Boolean(payload?.isEnabled);
-  const allowApiTrigger = payload?.allowApiTrigger === undefined ? true : Boolean(payload?.allowApiTrigger);
-
-  if (triggerType !== "cron") {
-    return { error: "Only cron-based integrations are supported right now." };
+  if (!["cron", "api"].includes(triggerType)) {
+    return { error: "Trigger type must be either cron or api." };
   }
-  if (!cronExpression || !cron.validate(cronExpression)) {
-    return { error: "A valid cron expression is required for scheduled integrations." };
+  if (triggerType === "cron" && (!cronExpression || !cron.validate(cronExpression))) {
+    return { error: "A valid cron expression is required for cron integrations." };
   }
 
   return {
     value: {
       ...testValidation.value,
       triggerType,
-      cronExpression,
+      cronExpression: triggerType === "cron" ? cronExpression : "",
       timezone,
       isEnabled,
-      allowApiTrigger,
+      allowApiTrigger: triggerType === "api",
     },
   };
 };
@@ -1774,6 +1772,9 @@ app.post("/api/integrations/hooks/:id", async (req, res) => {
   const integration = await Integration.findById(integrationId).lean();
   if (!integration) {
     return res.status(404).json({ error: "Integration not found." });
+  }
+  if (String(integration.triggerType ?? "cron") !== "api") {
+    return res.status(403).json({ error: "This integration is cron-based and cannot be triggered via API hook." });
   }
   if (!integration.allowApiTrigger) {
     return res.status(403).json({ error: "API trigger is disabled for this integration." });

@@ -17,13 +17,13 @@ const integrationSchema = new mongoose.Schema(
     script: { type: String, required: true },
     triggerType: {
       type: String,
-      enum: ["cron"],
+      enum: ["cron", "api"],
       default: "cron",
     },
-    cronExpression: { type: String, required: true, trim: true, maxlength: 120 },
+    cronExpression: { type: String, default: "", trim: true, maxlength: 120 },
     timezone: { type: String, default: "UTC", trim: true, maxlength: 80 },
     isEnabled: { type: Boolean, default: true },
-    allowApiTrigger: { type: Boolean, default: true },
+    allowApiTrigger: { type: Boolean, default: false },
     createdByUserId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
