@@ -1,4 +1,5 @@
-import { Activity, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
+import logo from '../assets/logo.png';
 import { motion } from 'framer-motion';
 import { useState } from 'react';
 
@@ -9,7 +10,7 @@ export const Navbar = () => {
     <nav className="fixed top-0 left-0 right-0 z-50 px-6 py-4">
       <div className="max-w-7xl mx-auto glass rounded-2xl px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Activity className="w-8 h-8 text-blue-500" />
+          <img src={logo} alt="LoadPulse" className="w-8 h-8 object-contain" />
           <span className="text-xl font-bold tracking-tight text-white">LoadPulse</span>
         </div>
 

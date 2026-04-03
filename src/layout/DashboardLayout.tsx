@@ -28,6 +28,7 @@ import { useAuth } from "../context/useAuth";
 import { UserAvatar } from "../components/UserAvatar";
 import { useNotifications } from "../context/useNotifications";
 import { buildProjectSectionPath, type ProjectSection } from "../lib/project-routes";
+import logo from "../assets/logo.png";
 
 const projectMenuItems: Array<{ icon: typeof LayoutDashboard; label: string; section: ProjectSection }> = [
   { icon: LayoutDashboard, label: "Dashboard", section: "dashboard" },
@@ -126,8 +127,8 @@ export const DashboardLayout = () => {
       >
         <div className={`mb-4 flex ${isCollapsed ? "flex-col items-center gap-2" : "items-center justify-between gap-2"}`}>
           <div className={`flex min-w-0 items-center ${isCollapsed ? "" : "gap-2"}`}>
-            <div className={`grid h-9 w-9 shrink-0 place-content-center rounded-xl border ${isCollapsed ? "border-primary/35 bg-primary/15" : "border-white/15 bg-white/5"}`}>
-              <LayoutDashboard className="h-4 w-4" />
+            <div className={`flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border ${isCollapsed ? "border-primary/35 bg-primary/15" : "border-white/15 bg-white/5"}`}>
+              <img src={logo} alt="LoadPulse" className="h-6 w-6 object-contain" />
             </div>
             {!isCollapsed && (
               <div className="min-w-0">
