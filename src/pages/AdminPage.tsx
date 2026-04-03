@@ -262,6 +262,9 @@ export const AdminPage = () => {
                           <span className={`rounded-full px-2.5 py-1 ${member.isAdmin ? "bg-primary/20 text-primary" : "bg-slate-500/20 text-slate-200"}`}>
                             {member.isAdmin ? "Admin" : "User"}
                           </span>
+                          {member.isOwner && (
+                            <span className="rounded-full bg-amber-500/20 px-2.5 py-1 text-amber-200">Owner</span>
+                          )}
                           {member.githubLinked && (
                             <span className="rounded-full bg-violet-500/20 px-2.5 py-1 text-violet-200">GitHub linked</span>
                           )}

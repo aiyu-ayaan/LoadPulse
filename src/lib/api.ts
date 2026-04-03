@@ -46,6 +46,7 @@ export interface AuthUser {
   githubUsername: string;
   hasPassword: boolean;
   isAdmin: boolean;
+  isOwner: boolean;
   isActive: boolean;
   twoFactorEnabled: boolean;
   projectPermissions: ProjectPermission[];
@@ -135,6 +136,7 @@ export interface AdminUser {
   username: string;
   email: string;
   isAdmin: boolean;
+  isOwner: boolean;
   isActive: boolean;
   githubLinked: boolean;
   hasPassword: boolean;

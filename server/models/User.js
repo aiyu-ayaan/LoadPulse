@@ -24,6 +24,7 @@ const userSchema = new mongoose.Schema(
     avatarDataUrl: { type: String, default: "", maxlength: 1_500_000 },
     passwordHash: { type: String, default: "" },
     isAdmin: { type: Boolean, default: false },
+    isOwner: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     twoFactorEnabled: { type: Boolean, default: false },
     twoFactorSecretEncrypted: { type: String, default: "" },

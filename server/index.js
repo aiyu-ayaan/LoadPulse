@@ -886,12 +886,41 @@ const toAdminUserResponse = (userDoc) => ({
   username: userDoc.username,
   email: userDoc.email,
   isAdmin: Boolean(userDoc.isAdmin),
+  isOwner: Boolean(userDoc.isOwner),
   isActive: userDoc.isActive !== false,
   githubLinked: Boolean(userDoc.githubId),
   hasPassword: Boolean(userDoc.passwordHash),
   createdAt: userDoc.createdAt,
   updatedAt: userDoc.updatedAt,
 });
+
+const ensureLegacyOwnerAndAdmin = async () => {
+  const totalUsers = await User.countDocuments({});
+  if (totalUsers === 0) {
+    return;
+  }
+
+  let ownerUser = await User.findOne({ isOwner: true }).sort({ createdAt: 1 });
+  if (!ownerUser) {
+    ownerUser = await User.findOne({}).sort({ createdAt: 1 });
+    if (ownerUser) {
+      ownerUser.isOwner = true;
+      await ownerUser.save();
+      console.log(`[migration] Marked ${ownerUser.username} as owner.`);
+    }
+  }
+
+  const adminExists = await User.exists({ isAdmin: true });
+  if (!adminExists) {
+    const fallbackAdmin = ownerUser ?? (await User.findOne({}).sort({ createdAt: 1 }));
+    if (fallbackAdmin) {
+      fallbackAdmin.isAdmin = true;
+      fallbackAdmin.isActive = fallbackAdmin.isActive !== false;
+      await fallbackAdmin.save();
+      console.log(`[migration] Marked ${fallbackAdmin.username} as admin.`);
+    }
+  }
+};
 
 const markOrphanedRuns = async () => {
   await TestRun.updateMany(
@@ -987,6 +1016,7 @@ const getProjectStatsMap = async (projectIds = null) => {
 };
 
 await mongoose.connect(mongoUri, { dbName: databaseName });
+await ensureLegacyOwnerAndAdmin();
 await markOrphanedRuns();
 
 const app = express();
@@ -1131,13 +1161,18 @@ app.post("/api/auth/signup", async (req, res) => {
     return res.status(409).json({ error: "Username or email is already in use." });
   }
 
-  const [userCount, adminCount] = await Promise.all([User.countDocuments({}), User.countDocuments({ isAdmin: true })]);
+  const [userCount, adminCount, ownerCount] = await Promise.all([
+    User.countDocuments({}),
+    User.countDocuments({ isAdmin: true }),
+    User.countDocuments({ isOwner: true }),
+  ]);
   const passwordHash = await bcrypt.hash(value.password, 12);
   const user = await User.create({
     username: value.username,
     email: value.email,
     passwordHash,
     isAdmin: userCount === 0 || adminCount === 0,
+    isOwner: userCount === 0 || ownerCount === 0,
     isActive: true,
   });
 
@@ -1168,6 +1203,7 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     email: value.email,
     passwordHash,
     isAdmin: true,
+    isOwner: true,
     isActive: true,
   });
 
@@ -1334,7 +1370,11 @@ app.get("/api/auth/github/callback", async (req, res) => {
     }
 
     if (!user) {
-      const [userCount, adminCount] = await Promise.all([User.countDocuments({}), User.countDocuments({ isAdmin: true })]);
+      const [userCount, adminCount, ownerCount] = await Promise.all([
+        User.countDocuments({}),
+        User.countDocuments({ isAdmin: true }),
+        User.countDocuments({ isOwner: true }),
+      ]);
       const username = await ensureUniqueUsername(githubUsername, email.split("@")[0], profile?.name);
       user = await User.create({
         username,
@@ -1343,6 +1383,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
         githubUsername,
         avatarDataUrl: avatarUrl,
         isAdmin: userCount === 0 || adminCount === 0,
+        isOwner: userCount === 0 || ownerCount === 0,
         isActive: true,
       });
     } else {
@@ -1517,6 +1558,9 @@ app.patch("/api/admin/users/:id/status", requireAdmin, async (req, res) => {
   }
 
   if (!isActive) {
+    if (targetUser.isOwner) {
+      return res.status(409).json({ error: "Owner account cannot be deactivated." });
+    }
     if (targetUser._id.toString() === req.authUser.id) {
       return res.status(409).json({ error: "You cannot deactivate your own account." });
     }
@@ -1557,6 +1601,9 @@ app.patch("/api/admin/users/:id/admin", requireAdmin, async (req, res) => {
   }
 
   if (!isAdmin && targetUser.isAdmin) {
+    if (targetUser.isOwner) {
+      return res.status(409).json({ error: "Owner account must remain admin." });
+    }
     const otherActiveAdminCount = await User.countDocuments({
       _id: { $ne: targetUser._id },
       isAdmin: true,
