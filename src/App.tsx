@@ -10,6 +10,8 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectRequired } from './components/ProjectRequired';
 import { TestDetailsPage } from './pages/TestDetailsPage';
 import { SignInPage } from './pages/SignInPage';
+import { AdminSignInPage } from './pages/AdminSignInPage';
+import { AdminPage } from './pages/AdminPage';
 import { useAuth } from './context/useAuth';
 
 const RequireAuth = ({ children }: { children: ReactElement }) => {
@@ -30,13 +32,42 @@ const RequireAuth = ({ children }: { children: ReactElement }) => {
   return children;
 };
 
+const RequireAdmin = ({ children }: { children: ReactElement }) => {
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-950 text-slate-200">
+        <p className="text-sm">Loading admin workspace...</p>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/admin/signin" replace />;
+  }
+
+  if (!user?.isAdmin) {
+    return <Navigate to="/projects" replace />;
+  }
+
+  return children;
+};
+
 function App() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/signin" element={isAuthenticated ? <Navigate to="/projects" replace /> : <SignInPage />} />
+        <Route
+          path="/admin/signin"
+          element={
+            isAuthenticated ? (user?.isAdmin ? <Navigate to="/admin" replace /> : <Navigate to="/projects" replace />) : <AdminSignInPage />
+          }
+        />
+        <Route path="/admin" element={<RequireAdmin><AdminPage /></RequireAdmin>} />
         <Route element={<RequireAuth><DashboardLayout /></RequireAuth>}>
           <Route path="/" element={<Navigate to="/projects" replace />} />
           <Route path="/projects" element={<ProjectsPage />} />

@@ -23,6 +23,7 @@ import {
   Info,
   CircleAlert,
   CheckCircle2,
+  Shield,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useProjects } from "../context/useProjects";
@@ -51,6 +52,7 @@ export const DashboardLayout = () => {
   const { notifications, unreadCount, markAsRead, markAllAsRead, removeNotification, clearNotifications } = useNotifications();
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
+  const navigationItems = user?.isAdmin ? [...menuItems, { icon: Shield, label: "Admin", path: "/admin" }] : menuItems;
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -133,7 +135,7 @@ export const DashboardLayout = () => {
         </div>
 
         <nav className="flex-1 space-y-2 overflow-y-auto px-3 py-5">
-          {menuItems.map((item) => (
+          {navigationItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
@@ -395,4 +397,3 @@ export const DashboardLayout = () => {
     </div>
   );
 };
-

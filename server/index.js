@@ -413,17 +413,21 @@ const normalizeEmail = (value) => String(value ?? "").trim().toLowerCase();
 const toPlainObject = (value) => (typeof value?.toObject === "function" ? value.toObject() : value);
 const escapeRegex = (value) => String(value ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const buildGithubStateToken = () =>
+const normalizeAuthTarget = (value) => (String(value ?? "").toLowerCase() === "admin" ? "admin" : "user");
+
+const buildGithubStateToken = (target = "user") =>
   jwt.sign(
     {
       purpose: "github-oauth",
+      target: normalizeAuthTarget(target),
     },
     jwtSecret,
     { expiresIn: "10m" },
   );
 
-const resolveClientAuthRedirect = (params = {}) => {
-  const url = new URL("/signin", clientAppOrigin);
+const resolveClientAuthRedirect = (params = {}, target = "user") => {
+  const authPath = normalizeAuthTarget(target) === "admin" ? "/admin/signin" : "/signin";
+  const url = new URL(authPath, clientAppOrigin);
   const hash = new URLSearchParams(
     Object.entries(params)
       .filter(([, value]) => value !== undefined && value !== null && String(value) !== "")
@@ -709,6 +713,21 @@ const validateSignUpPayload = (payload) => {
   };
 };
 
+const validateAdminCreateUserPayload = (payload) => {
+  const base = validateSignUpPayload(payload);
+  if (base.error) {
+    return base;
+  }
+
+  return {
+    value: {
+      ...base.value,
+      isAdmin: Boolean(payload?.isAdmin),
+      isActive: payload?.isActive === undefined ? true : Boolean(payload?.isActive),
+    },
+  };
+};
+
 const validateProjectSharePayload = (payload) => {
   const email = normalizeEmail(payload?.email);
   const canRun = Boolean(payload?.canRun);
@@ -801,10 +820,32 @@ const authenticateRequest = async (req, res, next) => {
   if (!user) {
     return res.status(401).json({ error: "User account no longer exists." });
   }
+  if (user.isActive === false) {
+    return res.status(403).json({ error: "This account is deactivated. Contact your administrator." });
+  }
 
   req.authUser = await buildSessionUser(user);
   return next();
 };
+
+const requireAdmin = (req, res, next) => {
+  if (!req.authUser?.isAdmin) {
+    return res.status(403).json({ error: "Admin access required." });
+  }
+  return next();
+};
+
+const toAdminUserResponse = (userDoc) => ({
+  id: userDoc._id.toString(),
+  username: userDoc.username,
+  email: userDoc.email,
+  isAdmin: Boolean(userDoc.isAdmin),
+  isActive: userDoc.isActive !== false,
+  githubLinked: Boolean(userDoc.githubId),
+  hasPassword: Boolean(userDoc.passwordHash),
+  createdAt: userDoc.createdAt,
+  updatedAt: userDoc.updatedAt,
+});
 
 const markOrphanedRuns = async () => {
   await TestRun.updateMany(
@@ -1004,14 +1045,16 @@ const fetchGithubJson = async (url, init = {}, defaultErrorMessage) => {
   return data;
 };
 
-const redirectWithAuthError = (res, message) => res.redirect(resolveClientAuthRedirect({ error: message }));
+const redirectWithAuthError = (res, message, target = "user") =>
+  res.redirect(resolveClientAuthRedirect({ error: message }, target));
 
 app.get("/api/auth/options", async (_req, res) => {
-  const userExists = await User.exists({});
+  const [userExists, adminExists] = await Promise.all([User.exists({}), User.exists({ isAdmin: true })]);
   return res.json({
     localEnabled: true,
     githubEnabled,
     hasUsers: Boolean(userExists),
+    hasAdmins: Boolean(adminExists),
   });
 });
 
@@ -1036,11 +1079,14 @@ app.post("/api/auth/signup", async (req, res) => {
     return res.status(409).json({ error: "Username or email is already in use." });
   }
 
+  const userCount = await User.countDocuments({});
   const passwordHash = await bcrypt.hash(value.password, 12);
   const user = await User.create({
     username: value.username,
     email: value.email,
     passwordHash,
+    isAdmin: userCount === 0,
+    isActive: true,
   });
 
   return res.status(201).json(await createSessionResponse(user));
@@ -1059,11 +1105,18 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     return res.status(409).json({ error: "Username or email is already in use." });
   }
 
+  const existingUsers = await User.exists({});
+  if (existingUsers) {
+    return res.status(409).json({ error: "Setup is already complete. Sign in with an existing account." });
+  }
+
   const passwordHash = await bcrypt.hash(value.password, 12);
   const user = await User.create({
     username: value.username,
     email: value.email,
     passwordHash,
+    isAdmin: true,
+    isActive: true,
   });
 
   return res.status(201).json(await createSessionResponse(user));
@@ -1080,6 +1133,9 @@ app.post("/api/auth/signin", async (req, res) => {
   const user = await User.findOne({ username });
   if (!user) {
     return res.status(401).json({ error: "Invalid username or password." });
+  }
+  if (user.isActive === false) {
+    return res.status(403).json({ error: "This account is deactivated. Contact your administrator." });
   }
   if (!user.passwordHash) {
     return res.status(401).json({ error: "This account does not have a password yet. Use GitHub sign-in instead." });
@@ -1120,6 +1176,20 @@ app.get("/api/auth/github/start", async (_req, res) => {
   return res.redirect(authorizeUrl.toString());
 });
 
+app.get("/api/auth/github/start-admin", async (_req, res) => {
+  if (!githubEnabled) {
+    return res.status(404).json({ error: "GitHub sign-in is not configured." });
+  }
+
+  const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
+  authorizeUrl.searchParams.set("client_id", githubClientId);
+  authorizeUrl.searchParams.set("redirect_uri", githubCallbackUrl);
+  authorizeUrl.searchParams.set("scope", "read:user user:email");
+  authorizeUrl.searchParams.set("state", buildGithubStateToken("admin"));
+
+  return res.redirect(authorizeUrl.toString());
+});
+
 app.get("/api/auth/github/callback", async (req, res) => {
   if (!githubEnabled) {
     return redirectWithAuthError(res, "GitHub sign-in is not configured for this environment.");
@@ -1131,11 +1201,13 @@ app.get("/api/auth/github/callback", async (req, res) => {
     return redirectWithAuthError(res, "GitHub sign-in could not be completed.");
   }
 
+  let authTarget = "user";
   try {
     const payload = jwt.verify(state, jwtSecret);
     if (payload?.purpose !== "github-oauth") {
       return redirectWithAuthError(res, "GitHub sign-in session is invalid.");
     }
+    authTarget = normalizeAuthTarget(payload?.target);
   } catch {
     return redirectWithAuthError(res, "GitHub sign-in session expired. Try again.");
   }
@@ -1201,7 +1273,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
     const email = normalizeEmail(primaryEmailRow?.email ?? profile?.email);
 
     if (!githubId || !email) {
-      return redirectWithAuthError(res, "A verified email is required on your GitHub account.");
+      return redirectWithAuthError(res, "A verified email is required on your GitHub account.", authTarget);
     }
 
     let user = await User.findOne({ githubId });
@@ -1210,6 +1282,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
     }
 
     if (!user) {
+      const userCount = await User.countDocuments({});
       const username = await ensureUniqueUsername(githubUsername, email.split("@")[0], profile?.name);
       user = await User.create({
         username,
@@ -1217,6 +1290,8 @@ app.get("/api/auth/github/callback", async (req, res) => {
         githubId,
         githubUsername,
         avatarDataUrl: avatarUrl,
+        isAdmin: userCount === 0,
+        isActive: true,
       });
     } else {
       user.githubId = githubId;
@@ -1235,6 +1310,10 @@ app.get("/api/auth/github/callback", async (req, res) => {
       await user.save();
     }
 
+    if (user.isActive === false) {
+      return redirectWithAuthError(res, "This account is deactivated. Contact your administrator.", authTarget);
+    }
+
     await syncUserProjectIdentity(user);
 
     if (user.twoFactorEnabled) {
@@ -1245,7 +1324,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
           pendingToken,
           username: user.username,
           email: user.email,
-        }),
+        }, authTarget),
       );
     }
 
@@ -1253,10 +1332,10 @@ app.get("/api/auth/github/callback", async (req, res) => {
     return res.redirect(
       resolveClientAuthRedirect({
         token: session.token,
-      }),
+      }, authTarget),
     );
   } catch (error) {
-    return redirectWithAuthError(res, String(error?.message ?? error ?? "GitHub sign-in failed."));
+    return redirectWithAuthError(res, String(error?.message ?? error ?? "GitHub sign-in failed."), authTarget);
   }
 });
 
@@ -1288,6 +1367,9 @@ app.post("/api/auth/verify-2fa", async (req, res) => {
   if (!user || !user.twoFactorEnabled || !user.twoFactorSecretEncrypted) {
     return res.status(401).json({ error: "2-step verification is not available for this account." });
   }
+  if (user.isActive === false) {
+    return res.status(403).json({ error: "This account is deactivated. Contact your administrator." });
+  }
 
   const secret = decryptSecret(user.twoFactorSecretEncrypted, jwtSecret);
   const isValidCode = verifyTwoFactorCode(secret, code);
@@ -1305,6 +1387,7 @@ app.use("/api", (req, res, next) => {
     req.path === "/auth/signup" ||
     req.path === "/auth/signin" ||
     req.path === "/auth/github/start" ||
+    req.path === "/auth/github/start-admin" ||
     req.path === "/auth/github/callback" ||
     req.path === "/auth/verify-2fa" ||
     req.path === "/auth/setup-status" ||
@@ -1318,6 +1401,118 @@ app.use("/api", (req, res, next) => {
 app.get("/api/auth/me", async (req, res) => {
   return res.json({
     user: req.authUser,
+  });
+});
+
+app.get("/api/admin/users", requireAdmin, async (_req, res) => {
+  const users = await User.find({})
+    .sort({ createdAt: -1 })
+    .lean();
+
+  return res.json({
+    data: users.map(toAdminUserResponse),
+  });
+});
+
+app.post("/api/admin/users", requireAdmin, async (req, res) => {
+  const { value, error } = validateAdminCreateUserPayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const duplicateAccount = await User.findOne({
+    $or: [{ username: value.username }, { email: value.email }],
+  }).lean();
+  if (duplicateAccount) {
+    return res.status(409).json({ error: "Username or email is already in use." });
+  }
+
+  const passwordHash = await bcrypt.hash(value.password, 12);
+  const user = await User.create({
+    username: value.username,
+    email: value.email,
+    passwordHash,
+    isAdmin: value.isAdmin,
+    isActive: value.isActive,
+  });
+
+  return res.status(201).json({
+    data: toAdminUserResponse(user),
+  });
+});
+
+app.patch("/api/admin/users/:id/status", requireAdmin, async (req, res) => {
+  const userId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(userId)) {
+    return res.status(400).json({ error: "Invalid user id." });
+  }
+
+  const isActive = req.body?.isActive;
+  if (typeof isActive !== "boolean") {
+    return res.status(400).json({ error: "isActive must be true or false." });
+  }
+
+  const targetUser = await User.findById(userId);
+  if (!targetUser) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  if (!isActive) {
+    if (targetUser._id.toString() === req.authUser.id) {
+      return res.status(409).json({ error: "You cannot deactivate your own account." });
+    }
+    if (targetUser.isAdmin) {
+      const otherActiveAdminCount = await User.countDocuments({
+        _id: { $ne: targetUser._id },
+        isAdmin: true,
+        isActive: true,
+      });
+      if (otherActiveAdminCount === 0) {
+        return res.status(409).json({ error: "At least one active admin account is required." });
+      }
+    }
+  }
+
+  targetUser.isActive = isActive;
+  await targetUser.save();
+
+  return res.json({
+    data: toAdminUserResponse(targetUser),
+  });
+});
+
+app.patch("/api/admin/users/:id/admin", requireAdmin, async (req, res) => {
+  const userId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(userId)) {
+    return res.status(400).json({ error: "Invalid user id." });
+  }
+
+  const isAdmin = req.body?.isAdmin;
+  if (typeof isAdmin !== "boolean") {
+    return res.status(400).json({ error: "isAdmin must be true or false." });
+  }
+
+  const targetUser = await User.findById(userId);
+  if (!targetUser) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  if (!isAdmin && targetUser.isAdmin) {
+    const otherActiveAdminCount = await User.countDocuments({
+      _id: { $ne: targetUser._id },
+      isAdmin: true,
+      isActive: true,
+    });
+    if (otherActiveAdminCount === 0) {
+      return res.status(409).json({ error: "At least one active admin account is required." });
+    }
+  }
+
+  targetUser.isAdmin = isAdmin;
+  await targetUser.save();
+
+  return res.json({
+    data: toAdminUserResponse(targetUser),
   });
 });
 

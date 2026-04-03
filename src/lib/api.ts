@@ -46,6 +46,7 @@ export interface AuthUser {
   githubUsername: string;
   hasPassword: boolean;
   isAdmin: boolean;
+  isActive: boolean;
   twoFactorEnabled: boolean;
   projectPermissions: ProjectPermission[];
 }
@@ -83,6 +84,7 @@ export interface AuthOptionsResponse {
   localEnabled: boolean;
   githubEnabled: boolean;
   hasUsers: boolean;
+  hasAdmins: boolean;
 }
 
 export interface SetupStatusResponse {
@@ -126,6 +128,18 @@ export interface ProjectAccessResponse {
   projectId: string;
   owner: ProjectAccessMember;
   members: ProjectAccessMember[];
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  email: string;
+  isAdmin: boolean;
+  isActive: boolean;
+  githubLinked: boolean;
+  hasPassword: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface DashboardKpis {
@@ -264,6 +278,7 @@ export const setAuthToken = (token: string | null) => {
 };
 
 export const getGitHubAuthStartUrl = () => `${baseUrl}/api/auth/github/start`;
+export const getGitHubAdminAuthStartUrl = () => `${baseUrl}/api/auth/github/start-admin`;
 
 const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const headers = new Headers(init?.headers ?? {});
@@ -368,6 +383,26 @@ export const deleteProject = (id: string) =>
 
 export const searchUsers = (query: string) =>
   request<{ data: UserSearchResult[] }>(`/api/users/search?q=${encodeURIComponent(query)}`);
+
+export const fetchAdminUsers = () => request<{ data: AdminUser[] }>("/api/admin/users");
+
+export const createAdminUser = (payload: { username: string; email: string; password: string; isAdmin?: boolean; isActive?: boolean }) =>
+  request<{ data: AdminUser }>("/api/admin/users", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const setAdminUserStatus = (userId: string, isActive: boolean) =>
+  request<{ data: AdminUser }>(`/api/admin/users/${encodeURIComponent(userId)}/status`, {
+    method: "PATCH",
+    body: JSON.stringify({ isActive }),
+  });
+
+export const setAdminUserRole = (userId: string, isAdmin: boolean) =>
+  request<{ data: AdminUser }>(`/api/admin/users/${encodeURIComponent(userId)}/admin`, {
+    method: "PATCH",
+    body: JSON.stringify({ isAdmin }),
+  });
 
 export const fetchProjectAccess = (projectId: string) =>
   request<{ data: ProjectAccessResponse }>(`/api/projects/${encodeURIComponent(projectId)}/access`);
