@@ -154,8 +154,8 @@ export const SignInPage = () => {
   }
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.22),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(139,92,246,0.2),transparent_34%),#020617] px-4 py-10 text-slate-100">
-      <div className="glass-panel w-full max-w-[480px] rounded-[2rem] border border-white/10 p-8 shadow-[0_24px_80px_rgba(2,6,23,0.55)]">
+    <div className="flex min-h-screen items-center justify-center bg-[#0f1011] px-4 py-10 text-slate-100">
+      <div className="glass-panel w-full max-w-[480px] rounded-2xl border border-white/10 p-8">
         <div className="space-y-3 text-center">
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-primary">LoadPulse Access</p>
           <h1 className="text-4xl font-bold tracking-tight text-white">{title}</h1>

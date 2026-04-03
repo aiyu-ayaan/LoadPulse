@@ -13,18 +13,12 @@ export const UserAvatar = ({
   const sizeClass = size === "sm" ? "h-9 w-9 text-sm" : size === "lg" ? "h-20 w-20 text-2xl" : "h-11 w-11 text-base";
 
   if (avatarDataUrl) {
-    return (
-      <img
-        src={avatarDataUrl}
-        alt={`${username} profile`}
-        className={`${sizeClass} rounded-2xl border border-white/10 object-cover`}
-      />
-    );
+    return <img src={avatarDataUrl} alt={`${username} profile`} className={`${sizeClass} rounded-xl border border-white/10 object-cover`} />;
   }
 
   return (
     <div
-      className={`${sizeClass} grid place-content-center rounded-2xl bg-gradient-to-br from-primary via-secondary-purple to-secondary-teal font-bold text-white`}
+      className={`${sizeClass} grid place-content-center rounded-xl border border-white/10 bg-slate-700 font-bold text-slate-100`}
       aria-label={`${username} avatar`}
     >
       {initial || <User size={18} />}

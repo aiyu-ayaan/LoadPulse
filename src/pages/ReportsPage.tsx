@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { FileText, Download, Share2, ExternalLink, ChevronRight, TrendingDown, Activity, Cpu, Network, Radar } from "lucide-react";
-import { motion } from "framer-motion";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
@@ -424,16 +423,13 @@ export const ReportsPage = () => {
               </button>
             </div>
 
-            <motion.div whileHover={{ y: -8 }} className="rounded-3xl p-8 bg-gradient-to-br from-primary via-secondary-purple to-secondary-teal text-white relative overflow-hidden group cursor-pointer shadow-2xl shadow-primary/20">
-              <h3 className="text-2xl font-black mb-2 tracking-tight">Automate this report</h3>
-              <p className="text-sm font-medium opacity-80 mb-6 leading-relaxed">Schedule performance runs and get PDF reports in Slack.</p>
-              <button className="bg-white/20 backdrop-blur-xl px-5 py-3 rounded-2xl text-[10px] font-black flex items-center gap-2 hover:bg-white/30 transition-all uppercase tracking-widest">
+            <div className="premium-card p-6">
+              <h3 className="text-lg font-bold text-white">Automate this report</h3>
+              <p className="mt-2 text-sm text-slate-400">Schedule performance runs and get PDF reports in Slack.</p>
+              <button className="mt-5 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-white/[0.08]">
                 Set Schedule <ExternalLink className="w-3 h-3" />
               </button>
-              <div className="absolute -bottom-6 -right-6 opacity-10 group-hover:opacity-20 transition-opacity">
-                <Activity size={140} />
-              </div>
-            </motion.div>
+            </div>
           </div>
         </div>
       )}

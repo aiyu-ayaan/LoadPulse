@@ -7,11 +7,7 @@ import {
   History,
   BarChart3,
   Settings,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Search,
   Bell,
-  Activity,
   Menu,
   X,
   LogOut,
@@ -23,9 +19,7 @@ import {
   Info,
   CircleAlert,
   CheckCircle2,
-  Shield,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
 import { useProjects } from "../context/useProjects";
 import { useAuth } from "../context/useAuth";
 import { UserAvatar } from "../components/UserAvatar";
@@ -40,19 +34,29 @@ const menuItems = [
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
 
+const pageTitleMap: Record<string, string> = {
+  "/projects": "Projects",
+  "/dashboard": "Dashboard",
+  "/new-test": "New Test",
+  "/history": "Test History",
+  "/reports": "Reports",
+  "/settings": "Settings",
+};
+
 export const DashboardLayout = () => {
   const navigate = useNavigate();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const location = useLocation();
+
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
   const [isNotificationOpen, setIsNotificationOpen] = useState(false);
-  const location = useLocation();
+
   const { projects, selectedProject, selectedProjectId, selectProject } = useProjects();
   const { user, signOut } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead, removeNotification, clearNotifications } = useNotifications();
+
   const projectMenuRef = useRef<HTMLDivElement | null>(null);
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
-  const navigationItems = user?.isAdmin ? [...menuItems, { icon: Shield, label: "Admin", path: "/admin" }] : menuItems;
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
@@ -72,7 +76,9 @@ export const DashboardLayout = () => {
     const frame = window.requestAnimationFrame(() => {
       setIsNotificationOpen(false);
       setIsProjectMenuOpen(false);
+      setIsMobileSidebarOpen(false);
     });
+
     return () => window.cancelAnimationFrame(frame);
   }, [location.pathname]);
 
@@ -90,309 +96,269 @@ export const DashboardLayout = () => {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden text-foreground">
-      <AnimatePresence>
-        {isMobileSidebarOpen && (
-          <motion.button
-            key="sidebar-backdrop"
-            aria-label="Close sidebar"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setIsMobileSidebarOpen(false)}
-            className="fixed inset-0 z-30 bg-slate-950/65 backdrop-blur-sm lg:hidden"
-          />
-        )}
-      </AnimatePresence>
+    <div className="min-h-screen bg-[#0f1011] text-slate-100">
+      {isMobileSidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation"
+          onClick={() => setIsMobileSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
+        />
+      )}
 
-      <aside
-        className={`glass-panel fixed inset-y-3 left-3 z-40 flex w-[272px] flex-col overflow-hidden rounded-2xl transition-transform duration-300 lg:translate-x-0 ${
-          isMobileSidebarOpen ? "translate-x-0" : "-translate-x-[115%]"
-        } ${isCollapsed ? "lg:w-[92px]" : "lg:w-[272px]"}`}
-      >
-        <div className="flex items-center gap-3 border-b border-white/10 px-5 py-5">
-          <div className="relative flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary via-secondary-purple to-secondary-teal animate-logo-pulse">
-            <Activity className="h-5 w-5 text-white" />
-            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-secondary-teal shadow-[0_0_12px_rgba(20,184,166,0.9)]" />
-          </div>
-
-          {!isCollapsed ? (
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-lg font-bold leading-none tracking-tight">LoadPulse</p>
-              <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted">k6 powered</p>
+      <div className="grid min-h-screen grid-cols-1 lg:grid-cols-[240px_1fr]">
+        <aside
+          className={`fixed inset-y-0 left-0 z-40 w-[240px] border-r border-white/10 bg-[#171819] p-4 transition-transform duration-200 lg:static lg:translate-x-0 ${
+            isMobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+          }`}
+        >
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="grid h-8 w-8 place-content-center rounded-md border border-white/15 bg-white/5">
+                <LayoutDashboard className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-white">LoadPulse</p>
+                <p className="text-[10px] uppercase tracking-[0.16em] text-slate-500">Workspace</p>
+              </div>
             </div>
-          ) : (
-            <span className="sr-only">LoadPulse</span>
-          )}
-
-          <button
-            aria-label="Close sidebar"
-            onClick={() => setIsMobileSidebarOpen(false)}
-            className="grid h-8 w-8 place-content-center rounded-lg text-slate-400 transition hover:bg-white/10 hover:text-white lg:hidden"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        <nav className="flex-1 space-y-2 overflow-y-auto px-3 py-5">
-          {navigationItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
+            <button
+              type="button"
               onClick={() => setIsMobileSidebarOpen(false)}
-              className={({ isActive }) =>
-                `group flex items-center gap-3 rounded-2xl px-3 py-3 transition-all duration-200 ${
-                  isActive ? "neon-border bg-primary/20 text-primary" : "text-slate-400 hover:bg-white/[0.07] hover:text-white"
-                }`
-              }
+              className="rounded-lg p-1 text-slate-400 hover:bg-white/10 hover:text-white lg:hidden"
+              aria-label="Close menu"
             >
-              <item.icon className="h-5 w-5 min-w-[20px]" />
-              {!isCollapsed ? <span className="font-medium">{item.label}</span> : <span className="sr-only">{item.label}</span>}
-            </NavLink>
-          ))}
-        </nav>
-
-        {!isCollapsed && (
-          <div className="mx-3 mb-3 rounded-2xl border border-white/10 bg-white/5 p-4">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted">Selected Project</p>
-            <p className="mt-2 text-sm font-semibold">{selectedProject?.name ?? "No project selected"}</p>
-            <p className="mt-2 truncate text-xs text-muted">{selectedProject?.baseUrl ?? "Create a project to begin testing"}</p>
-          </div>
-        )}
-      </aside>
-
-      <div className={`flex min-h-screen flex-col transition-[margin] duration-300 ${isCollapsed ? "lg:ml-[92px]" : "lg:ml-[272px]"}`}>
-        <header className="glass-panel sticky top-0 z-20 mx-3 mt-3 flex h-[74px] items-center justify-between rounded-2xl px-4 md:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              aria-label="Open sidebar"
-              onClick={() => setIsMobileSidebarOpen(true)}
-              className="grid h-10 w-10 place-content-center rounded-xl text-slate-300 transition hover:bg-white/10 hover:text-white lg:hidden"
-            >
-              <Menu size={18} />
+              <X className="h-4 w-4" />
             </button>
-
-            <button
-              aria-label="Toggle sidebar"
-              onClick={() => setIsCollapsed((prev) => !prev)}
-              className="hidden h-10 w-10 place-content-center rounded-xl text-slate-300 transition hover:bg-white/10 hover:text-white lg:grid"
-            >
-              {isCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-            </button>
-
-            <div className="hidden md:block">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">LoadPulse Console</p>
-              <h2 className="text-lg font-semibold tracking-tight">Project Performance Workspace</h2>
-            </div>
           </div>
 
-          <div className="flex items-center gap-2 md:gap-3">
-            <div className="relative hidden md:block" ref={projectMenuRef}>
+          <nav className="space-y-1.5">
+            {menuItems.map((item) => (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${
+                    isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
+                  }`
+                }
+              >
+                <item.icon className="h-4 w-4" />
+                {item.label}
+              </NavLink>
+            ))}
+          </nav>
+
+          <div className="mt-6 rounded-xl border border-white/10 bg-white/[0.03] p-3">
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Selected Project</p>
+            <p className="mt-2 truncate text-sm font-semibold text-white">{selectedProject?.name ?? "No project"}</p>
+            <p className="mt-1 truncate text-xs text-slate-400">{selectedProject?.baseUrl ?? "Create a project to start."}</p>
+          </div>
+        </aside>
+
+        <section className="px-3 py-3 md:px-4 lg:px-6">
+          <header className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-[#171819] px-4 py-3">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsProjectMenuOpen((previous) => !previous)}
-                className="flex h-11 min-w-[220px] items-center justify-between rounded-2xl border border-white/[0.12] bg-white/5 px-4 text-left text-sm text-slate-100 transition hover:bg-white/[0.08] focus:border-primary/60 focus:outline-none"
+                onClick={() => setIsMobileSidebarOpen(true)}
+                className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white lg:hidden"
+                aria-label="Open menu"
               >
-                <span className="truncate">{selectedProject?.name ?? "Create a project first"}</span>
-                <ChevronDown
-                  className={`ml-3 h-4 w-4 shrink-0 text-slate-400 transition-transform ${isProjectMenuOpen ? "rotate-180" : ""}`}
-                />
+                <Menu className="h-4 w-4" />
               </button>
-
-              {isProjectMenuOpen && (
-                <div className="absolute right-0 top-[calc(100%+0.5rem)] z-30 min-w-[260px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 p-2 shadow-[0_24px_48px_rgba(2,6,23,0.55)] backdrop-blur-xl">
-                  {projects.length === 0 ? (
-                    <div className="rounded-xl px-3 py-3 text-sm text-slate-400">Create a project first</div>
-                  ) : (
-                    projects.map((project) => {
-                      const isSelected = project.id === selectedProjectId;
-
-                      return (
-                        <button
-                          key={project.id}
-                          type="button"
-                          onClick={() => {
-                            selectProject(project.id);
-                            setIsProjectMenuOpen(false);
-                          }}
-                          className={`flex w-full items-center justify-between rounded-xl px-3 py-3 text-left text-sm transition ${
-                            isSelected ? "bg-primary/20 text-white" : "text-slate-200 hover:bg-white/[0.06]"
-                          }`}
-                        >
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{project.name}</p>
-                            <p className="truncate text-xs text-slate-400">{project.baseUrl}</p>
-                          </div>
-                          {isSelected && <Check className="ml-3 h-4 w-4 shrink-0 text-primary" />}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              )}
+              <p className="text-sm font-medium text-slate-300">LoadPulse</p>
+              <span className="text-slate-600">/</span>
+              <h1 className="text-base font-semibold text-white md:text-lg">{pageTitleMap[location.pathname] ?? "Workspace"}</h1>
             </div>
 
-            <div className="relative hidden md:block">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search tests and reports..."
-                className="h-11 w-[260px] rounded-2xl border border-white/[0.12] bg-white/5 py-2 pl-10 pr-4 text-sm text-slate-100 outline-none transition focus:border-primary/60"
-              />
-            </div>
+            <div className="flex items-center gap-2 md:gap-3">
+              <div className="relative" ref={projectMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsProjectMenuOpen((previous) => !previous)}
+                  className="flex min-w-[140px] max-w-[170px] items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-left text-sm text-slate-100 transition hover:bg-white/[0.08] md:min-w-[200px] md:max-w-none"
+                >
+                  <span className="truncate">{selectedProject?.name ?? "Select project"}</span>
+                  <ChevronDown
+                    className={`ml-3 h-4 w-4 shrink-0 text-slate-400 transition-transform ${isProjectMenuOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
 
-            <div className="relative" ref={notificationMenuRef}>
-              <button
-                type="button"
-                onClick={() => setIsNotificationOpen((previous) => !previous)}
-                className="relative grid h-10 w-10 place-content-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white"
-                aria-label="Notifications"
-              >
-                <Bell size={20} />
-                {unreadCount > 0 && (
-                  <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-bold leading-none text-white shadow-[0_0_10px_rgba(59,130,246,0.8)]">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
-                )}
-              </button>
+                {isProjectMenuOpen && (
+                  <div className="absolute right-0 top-[calc(100%+0.4rem)] z-30 min-w-[240px] overflow-hidden rounded-xl border border-white/10 bg-[#171819] p-2 shadow-[0_14px_30px_rgba(2,6,23,0.3)]">
+                    {projects.length === 0 ? (
+                      <div className="rounded-lg px-3 py-2 text-sm text-slate-400">Create a project first</div>
+                    ) : (
+                      projects.map((project) => {
+                        const isSelected = project.id === selectedProjectId;
 
-              {isNotificationOpen && (
-                <div className="absolute right-0 top-[calc(100%+0.75rem)] z-40 w-[360px] overflow-hidden rounded-2xl border border-white/10 bg-slate-950/95 shadow-[0_24px_48px_rgba(2,6,23,0.55)] backdrop-blur-xl">
-                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">Notifications</p>
-                      <p className="text-xs text-slate-400">
-                        {unreadCount > 0 ? `${unreadCount} unread update${unreadCount === 1 ? "" : "s"}` : "All caught up"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={markAllAsRead}
-                        disabled={notifications.length === 0 || unreadCount === 0}
-                        className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06] disabled:opacity-40"
-                      >
-                        <span className="inline-flex items-center gap-1">
-                          <CheckCheck className="h-3.5 w-3.5" /> Read all
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={clearNotifications}
-                        disabled={notifications.length === 0}
-                        className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06] disabled:opacity-40"
-                      >
-                        Clear
-                      </button>
-                    </div>
+                        return (
+                          <button
+                            key={project.id}
+                            type="button"
+                            onClick={() => {
+                              selectProject(project.id);
+                              setIsProjectMenuOpen(false);
+                            }}
+                            className={`flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm transition ${
+                              isSelected ? "bg-primary/20 text-white" : "text-slate-200 hover:bg-white/[0.08]"
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">{project.name}</p>
+                              <p className="truncate text-xs text-slate-400">{project.baseUrl}</p>
+                            </div>
+                            {isSelected && <Check className="ml-3 h-4 w-4 shrink-0 text-primary" />}
+                          </button>
+                        );
+                      })
+                    )}
                   </div>
+                )}
+              </div>
 
-                  {notifications.length === 0 ? (
-                    <div className="px-4 py-10 text-center">
-                      <p className="text-sm font-medium text-white">No notifications yet</p>
-                      <p className="mt-1 text-xs text-slate-400">Queued, running, and completed tests will appear here.</p>
-                    </div>
-                  ) : (
-                    <div className="max-h-[420px] overflow-y-auto p-2">
-                      {notifications.map((notification) => (
-                        <div
-                          key={notification.id}
-                          className={`group rounded-xl border px-3 py-3 transition ${
-                            notification.read
-                              ? "border-transparent bg-transparent hover:bg-white/[0.04]"
-                              : "border-primary/20 bg-primary/10 hover:bg-primary/15"
-                          }`}
+              <div className="relative" ref={notificationMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setIsNotificationOpen((previous) => !previous)}
+                  className="relative grid h-9 w-9 place-content-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Notifications"
+                >
+                  <Bell className="h-4 w-4" />
+                  {unreadCount > 0 && (
+                    <span className="absolute -right-1 -top-1 min-w-[16px] rounded-full bg-primary px-1 py-[1px] text-[10px] font-bold leading-none text-white">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  )}
+                </button>
+
+                {isNotificationOpen && (
+                  <div className="absolute right-0 top-[calc(100%+0.5rem)] z-40 w-[min(92vw,360px)] overflow-hidden rounded-xl border border-white/10 bg-[#171819] shadow-[0_14px_30px_rgba(2,6,23,0.35)]">
+                    <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">Notifications</p>
+                        <p className="text-xs text-slate-400">
+                          {unreadCount > 0 ? `${unreadCount} unread` : "All caught up"}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={markAllAsRead}
+                          disabled={notifications.length === 0 || unreadCount === 0}
+                          className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/10 disabled:opacity-40"
                         >
-                          <div className="flex items-start gap-3">
-                            <div className="mt-0.5">{notificationIcon(notification.type)}</div>
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
+                          <span className="inline-flex items-center gap-1">
+                            <CheckCheck className="h-3 w-3" /> Read all
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearNotifications}
+                          disabled={notifications.length === 0}
+                          className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-300 hover:bg-white/10 disabled:opacity-40"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+
+                    {notifications.length === 0 ? (
+                      <div className="px-4 py-8 text-center">
+                        <p className="text-sm text-slate-300">No notifications yet.</p>
+                      </div>
+                    ) : (
+                      <div className="max-h-[380px] space-y-2 overflow-y-auto p-2">
+                        {notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className={`rounded-lg border px-3 py-3 ${
+                              notification.read
+                                ? "border-white/5 bg-white/[0.02]"
+                                : "border-primary/30 bg-primary/10"
+                            }`}
+                          >
+                            <div className="flex items-start gap-2.5">
+                              <div className="mt-0.5">{notificationIcon(notification.type)}</div>
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-2">
                                   <p className="text-sm font-semibold text-white">{notification.title}</p>
-                                  <p className="mt-1 text-xs leading-5 text-slate-300">{notification.message}</p>
+                                  {!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />}
                                 </div>
-                                {!notification.read && <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-primary" />}
-                              </div>
-                              <div className="mt-3 flex items-center justify-between gap-3">
-                                <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                                  {new Date(notification.timestamp).toLocaleString("en-US", {
-                                    month: "short",
-                                    day: "numeric",
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </p>
-                                <div className="flex items-center gap-2">
-                                  {notification.link && (
+                                <p className="mt-1 text-xs leading-5 text-slate-300">{notification.message}</p>
+                                <div className="mt-3 flex items-center justify-between gap-2">
+                                  <p className="text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                                    {new Date(notification.timestamp).toLocaleString("en-US", {
+                                      month: "short",
+                                      day: "numeric",
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </p>
+                                  <div className="flex items-center gap-1.5">
+                                    {notification.link && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const link = notification.link;
+                                          if (!link) {
+                                            return;
+                                          }
+                                          markAsRead(notification.id);
+                                          setIsNotificationOpen(false);
+                                          void navigate(link);
+                                        }}
+                                        className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-200 hover:bg-white/10"
+                                      >
+                                        <span className="inline-flex items-center gap-1">
+                                          <ExternalLink className="h-3 w-3" /> Open
+                                        </span>
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
-                                      onClick={() => {
-                                        const link = notification.link;
-                                        if (!link) {
-                                          return;
-                                        }
-                                        markAsRead(notification.id);
-                                        setIsNotificationOpen(false);
-                                        void navigate(link);
-                                      }}
-                                      className="rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] font-semibold text-slate-200 transition hover:bg-white/[0.06]"
+                                      onClick={() => removeNotification(notification.id)}
+                                      className="rounded-md border border-white/10 px-1.5 py-1 text-slate-300 hover:bg-white/10"
                                     >
-                                      <span className="inline-flex items-center gap-1">
-                                        <ExternalLink className="h-3.5 w-3.5" /> Open
-                                      </span>
+                                      <Trash2 className="h-3.5 w-3.5" />
                                     </button>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => removeNotification(notification.id)}
-                                    className="rounded-lg border border-white/10 px-2 py-1.5 text-[11px] font-semibold text-slate-300 transition hover:bg-white/[0.06]"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
+                                  </div>
                                 </div>
                               </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="h-8 w-px bg-white/10" />
-
-            <div className="flex items-center gap-2 md:gap-3">
-              <UserAvatar username={user?.username ?? "User"} avatarDataUrl={user?.avatarDataUrl} size="sm" />
-              <div className="hidden sm:block">
-                <p className="text-sm font-semibold">{user?.username ?? "User"}</p>
-                <p className="text-xs text-muted">{user?.githubLinked ? "GitHub Connected" : "Workspace Member"}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
-              <button
-                onClick={signOut}
-                className="grid h-9 w-9 place-content-center rounded-xl border border-white/10 bg-white/5 text-slate-300 transition hover:bg-white/10 hover:text-white"
-                aria-label="Sign out"
-                title="Sign out"
-              >
-                <LogOut size={16} />
-              </button>
-            </div>
-          </div>
-        </header>
 
-        <main className="flex-1 overflow-y-auto px-3 pb-3 pt-4 md:px-4 md:pt-5 lg:px-6 lg:pt-6 xl:px-8 xl:pt-7">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={location.pathname}
-              initial={{ opacity: 0, y: 14 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
-              transition={{ duration: 0.22 }}
-            >
-              <Outlet />
-            </motion.div>
-          </AnimatePresence>
-        </main>
+              <div className="hidden h-8 w-px bg-white/10 sm:block" />
+
+              <div className="flex items-center gap-2">
+                <UserAvatar username={user?.username ?? "User"} avatarDataUrl={user?.avatarDataUrl} size="sm" />
+                <div className="hidden md:block">
+                  <p className="text-sm font-semibold text-white">{user?.username ?? "User"}</p>
+                  <p className="text-xs text-slate-400">{user?.githubLinked ? "GitHub linked" : "Workspace member"}</p>
+                </div>
+                <button
+                  onClick={signOut}
+                  className="grid h-9 w-9 place-content-center rounded-lg border border-white/10 bg-white/[0.03] text-slate-300 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Sign out"
+                  title="Sign out"
+                >
+                  <LogOut className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </header>
+
+          <main className="pb-4">
+            <Outlet />
+          </main>
+        </section>
       </div>
     </div>
   );
