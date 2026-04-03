@@ -6,6 +6,7 @@ import { NewTestPage } from './pages/NewTestPage';
 import { TestHistoryPage } from './pages/TestHistoryPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { IntegrationsPage } from './pages/IntegrationsPage';
 import { ProjectsPage } from './pages/ProjectsPage';
 import { ProjectRequired } from './components/ProjectRequired';
 import { TestDetailsPage } from './pages/TestDetailsPage';
@@ -89,6 +90,7 @@ function App() {
           <Route path="/projects/:projectId/history" element={<ProjectRequired><TestHistoryPage /></ProjectRequired>} />
           <Route path="/projects/:projectId/tests/:testId" element={<ProjectRequired><TestDetailsPage /></ProjectRequired>} />
           <Route path="/projects/:projectId/reports" element={<ProjectRequired><ReportsPage /></ProjectRequired>} />
+          <Route path="/projects/:projectId/integrations" element={<ProjectRequired><IntegrationsPage /></ProjectRequired>} />
           <Route path="/projects/:projectId/settings" element={<ProjectRequired><SettingsPage /></ProjectRequired>} />
           <Route path="/integrations" element={<Navigate to="/projects" replace />} />
           <Route path="*" element={<NotFoundPage />} />

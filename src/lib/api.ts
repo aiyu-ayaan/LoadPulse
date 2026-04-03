@@ -262,6 +262,38 @@ export interface TestRunDetail extends TestHistoryItem {
   script: string;
 }
 
+export interface ProjectIntegration {
+  id: string;
+  projectId: string;
+  name: string;
+  targetUrl: string;
+  type: string;
+  region: string;
+  vus: number;
+  duration: string;
+  script: string;
+  triggerType: "cron";
+  cronExpression: string;
+  timezone: string;
+  isEnabled: boolean;
+  allowApiTrigger: boolean;
+  lastTriggeredAt: string | null;
+  lastRunId: string | null;
+  lastRunStatus: string;
+  lastTriggerSource: string;
+  lastError: string;
+  hookPath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectIntegrationTokenMeta {
+  hasToken: boolean;
+  preview: string;
+  updatedAt: string | null;
+  lastUsedAt: string | null;
+}
+
 const baseUrl = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") ?? "";
 const TOKEN_STORAGE_KEY = "loadpulse.auth.token";
 
@@ -487,3 +519,86 @@ export const stopTestRun = (id: string) =>
 
 export const fetchTestRun = (id: string) =>
   request<{ data: TestRunDetail }>(`/api/tests/${encodeURIComponent(id)}`);
+
+export const fetchProjectIntegrations = (projectId: string) =>
+  request<{ data: ProjectIntegration[] }>(`/api/projects/${encodeURIComponent(projectId)}/integrations`);
+
+export const createProjectIntegration = (
+  projectId: string,
+  payload: {
+    name: string;
+    targetUrl: string;
+    type: string;
+    region: string;
+    vus: number;
+    duration: string;
+    script: string;
+    triggerType?: "cron";
+    cronExpression: string;
+    timezone?: string;
+    isEnabled?: boolean;
+    allowApiTrigger?: boolean;
+  },
+) =>
+  request<{ data: ProjectIntegration }>(`/api/projects/${encodeURIComponent(projectId)}/integrations`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateProjectIntegration = (
+  projectId: string,
+  integrationId: string,
+  payload: {
+    name: string;
+    targetUrl: string;
+    type: string;
+    region: string;
+    vus: number;
+    duration: string;
+    script: string;
+    triggerType?: "cron";
+    cronExpression: string;
+    timezone?: string;
+    isEnabled?: boolean;
+    allowApiTrigger?: boolean;
+  },
+) =>
+  request<{ data: ProjectIntegration }>(
+    `/api/projects/${encodeURIComponent(projectId)}/integrations/${encodeURIComponent(integrationId)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    },
+  );
+
+export const deleteProjectIntegration = (projectId: string, integrationId: string) =>
+  request<{ success: boolean }>(
+    `/api/projects/${encodeURIComponent(projectId)}/integrations/${encodeURIComponent(integrationId)}`,
+    {
+      method: "DELETE",
+    },
+  );
+
+export const triggerProjectIntegration = (projectId: string, integrationId: string) =>
+  request<{ success: boolean; runId: string; status: string; message: string }>(
+    `/api/projects/${encodeURIComponent(projectId)}/integrations/${encodeURIComponent(integrationId)}/trigger`,
+    {
+      method: "POST",
+    },
+  );
+
+export const fetchProjectIntegrationToken = (projectId: string) =>
+  request<{ data: ProjectIntegrationTokenMeta }>(`/api/projects/${encodeURIComponent(projectId)}/integration-token`);
+
+export const regenerateProjectIntegrationToken = (projectId: string) =>
+  request<{ data: ProjectIntegrationTokenMeta & { token: string } }>(
+    `/api/projects/${encodeURIComponent(projectId)}/integration-token/regenerate`,
+    {
+      method: "POST",
+    },
+  );
+
+export const revokeProjectIntegrationToken = (projectId: string) =>
+  request<{ success: boolean }>(`/api/projects/${encodeURIComponent(projectId)}/integration-token`, {
+    method: "DELETE",
+  });

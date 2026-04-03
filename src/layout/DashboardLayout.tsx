@@ -21,6 +21,7 @@ import {
   PanelLeftOpen,
   ArrowLeft,
   UserCircle2,
+  Puzzle,
 } from "lucide-react";
 import { useProjects } from "../context/useProjects";
 import { useAuth } from "../context/useAuth";
@@ -33,6 +34,7 @@ const projectMenuItems: Array<{ icon: typeof LayoutDashboard; label: string; sec
   { icon: PlusCircle, label: "New Test", section: "new-test" },
   { icon: History, label: "Test History", section: "history" },
   { icon: BarChart3, label: "Reports", section: "reports" },
+  { icon: Puzzle, label: "Integrations", section: "integrations" },
   { icon: Settings, label: "Settings", section: "settings" },
 ];
 

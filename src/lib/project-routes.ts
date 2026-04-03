@@ -1,4 +1,4 @@
-export const PROJECT_SECTIONS = ["dashboard", "new-test", "history", "reports", "settings"] as const;
+export const PROJECT_SECTIONS = ["dashboard", "new-test", "history", "reports", "integrations", "settings"] as const;
 
 export type ProjectSection = (typeof PROJECT_SECTIONS)[number];
 
@@ -37,6 +37,9 @@ export const getTitleFromPathname = (pathname: string) => {
   }
   if (section === "reports") {
     return "Reports";
+  }
+  if (section === "integrations") {
+    return "Integrations";
   }
   if (section === "settings") {
     return "Settings";
