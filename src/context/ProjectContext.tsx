@@ -67,6 +67,10 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
     setSelectedProjectId(projectId);
   }, []);
 
+  const clearSelectedProject = useCallback(() => {
+    setSelectedProjectId(null);
+  }, []);
+
   const createAndSelectProject = useCallback(
     async (payload: { name: string; baseUrl: string; description?: string }) => {
       const response = await createProject(payload);
@@ -98,6 +102,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       error,
       refreshProjects,
       selectProject,
+      clearSelectedProject,
       createAndSelectProject,
       deleteProjectById,
     }),
@@ -109,6 +114,7 @@ export const ProjectProvider = ({ children }: { children: ReactNode }) => {
       error,
       refreshProjects,
       selectProject,
+      clearSelectedProject,
       createAndSelectProject,
       deleteProjectById,
     ],

@@ -9,6 +9,7 @@ export interface ProjectContextValue {
   error: string | null;
   refreshProjects: () => Promise<void>;
   selectProject: (projectId: string) => void;
+  clearSelectedProject: () => void;
   createAndSelectProject: (payload: { name: string; baseUrl: string; description?: string }) => Promise<Project>;
   deleteProjectById: (projectId: string) => Promise<void>;
 }
