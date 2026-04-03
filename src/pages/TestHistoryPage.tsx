@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
-import { Search, ExternalLink, Trash2, Play, AlertCircle, CheckCircle2, Clock, History, FolderKanban } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Search, ExternalLink, Trash2, Play, AlertCircle, CheckCircle2, Clock, History, FolderKanban, Square } from "lucide-react";
 import { motion } from "framer-motion";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
-import { clearHistory, deleteTestRun, fetchTestHistory, type TestHistoryItem } from "../lib/api";
+import { clearHistory, deleteTestRun, fetchTestHistory, stopTestRun, type TestHistoryItem } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
 
@@ -35,6 +35,46 @@ export const TestHistoryPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [stoppingRunIds, setStoppingRunIds] = useState<Set<string>>(new Set());
+
+  const loadHistory = useCallback(
+    async (showLoading = false) => {
+      if (!selectedProject) {
+        setIsLoading(false);
+        return;
+      }
+
+      if (showLoading) {
+        setIsLoading(true);
+      }
+
+      try {
+        const response = await fetchTestHistory(selectedProject.id, query);
+        setData(response.data);
+        setStoppingRunIds((previous) => {
+          if (previous.size === 0) {
+            return previous;
+          }
+
+          const activeRunIds = new Set(
+            response.data
+              .filter((item) => item.status === "running" || item.status === "queued")
+              .map((item) => item.id),
+          );
+          const next = new Set([...previous].filter((id) => activeRunIds.has(id)));
+          return next.size === previous.size ? previous : next;
+        });
+        setError(null);
+      } catch (requestError) {
+        setError(requestError instanceof Error ? requestError.message : "Unable to fetch test history.");
+      } finally {
+        if (showLoading) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [query, selectedProject],
+  );
 
   useEffect(() => {
     if (!selectedProject) {
@@ -43,19 +83,30 @@ export const TestHistoryPage = () => {
     }
 
     const timer = window.setTimeout(async () => {
-      try {
-        const response = await fetchTestHistory(selectedProject.id, query);
-        setData(response.data);
-        setError(null);
-      } catch (requestError) {
-        setError(requestError instanceof Error ? requestError.message : "Unable to fetch test history.");
-      } finally {
-        setIsLoading(false);
-      }
+      await loadHistory(true);
     }, 280);
 
     return () => window.clearTimeout(timer);
-  }, [query, selectedProject]);
+  }, [loadHistory, selectedProject]);
+
+  useEffect(() => {
+    if (!selectedProject) {
+      return;
+    }
+
+    const hasActiveOrStopping =
+      data.some((item) => item.status === "running" || item.status === "queued") || stoppingRunIds.size > 0;
+
+    if (!hasActiveOrStopping) {
+      return;
+    }
+
+    const interval = window.setInterval(() => {
+      void loadHistory();
+    }, 2200);
+
+    return () => window.clearInterval(interval);
+  }, [data, loadHistory, selectedProject, stoppingRunIds]);
 
   const handleDeleteAll = async () => {
     if (!selectedProject) {
@@ -63,8 +114,7 @@ export const TestHistoryPage = () => {
     }
     try {
       await clearHistory(selectedProject.id);
-      const response = await fetchTestHistory(selectedProject.id, query);
-      setData(response.data);
+      await loadHistory();
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to clear history.");
     }
@@ -76,6 +126,22 @@ export const TestHistoryPage = () => {
       setData((previousData) => previousData.filter((item) => item.id !== id));
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to delete test run.");
+    }
+  };
+
+  const handleStopOne = async (id: string) => {
+    setStoppingRunIds((previous) => new Set(previous).add(id));
+
+    try {
+      await stopTestRun(id);
+      await loadHistory();
+    } catch (requestError) {
+      setStoppingRunIds((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+      setError(requestError instanceof Error ? requestError.message : "Unable to stop test run.");
     }
   };
 
@@ -187,6 +253,11 @@ export const TestHistoryPage = () => {
                           <AlertCircle className="w-4 h-4" /> Failed
                         </div>
                       )}
+                      {test.status === "stopped" && (
+                        <div className="flex items-center gap-2 text-amber-400">
+                          <Square className="w-4 h-4" /> Stopped
+                        </div>
+                      )}
                       {(test.status === "running" || test.status === "queued") && (
                         <div className="flex items-center gap-2 text-primary animate-pulse">
                           <Clock className="w-4 h-4" /> Running...
@@ -195,7 +266,16 @@ export const TestHistoryPage = () => {
                     </td>
                     <td className="px-6 py-4 font-mono text-slate-300">{toLatencyLabel(test.avgLatencyMs)}</td>
                     <td className="px-6 py-4">
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                        {(test.status === "running" || test.status === "queued") && (
+                          <button
+                            onClick={() => void handleStopOne(test.id)}
+                            disabled={stoppingRunIds.has(test.id)}
+                            className="h-9 rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 text-xs font-semibold text-amber-200 hover:bg-amber-500/20 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-70"
+                          >
+                            <Square className="w-3.5 h-3.5" /> {stoppingRunIds.has(test.id) ? "Stopping..." : "Stop"}
+                          </button>
+                        )}
                         <button
                           onClick={() => navigate(buildProjectTestPath(selectedProject.id, test.id))}
                           className="h-9 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-semibold text-slate-200 hover:border-primary/40 hover:text-primary transition-colors flex items-center gap-2"

@@ -147,6 +147,8 @@ const createState = (runId, runName, projectId, workingDir, filePaths) => ({
   publishTimer: null,
   latestSnapshot: null,
   finalized: false,
+  stopRequested: false,
+  stopReason: "",
 });
 
 const classifyStatusCode = (statusCode) => {
@@ -388,16 +390,20 @@ const finalize = async (state, exitCode) => {
   }
 
   const parsedSummary = parseSummaryMetrics(summaryPayload, fallbackFinalMetrics);
-  const isSuccess = exitCode === 0;
-  const errorMessage = isSuccess
-    ? null
-    : state.stderrTail.join("").trim() || `k6 exited with code ${exitCode}`;
+  const isStopped = state.stopRequested;
+  const isSuccess = !isStopped && exitCode === 0;
+  const finalStatus = isStopped ? "stopped" : isSuccess ? "success" : "failed";
+  const errorMessage = isStopped
+    ? state.stopReason || "Stopped by user."
+    : isSuccess
+      ? null
+      : state.stderrTail.join("").trim() || `k6 exited with code ${exitCode}`;
 
   await TestRun.updateOne(
     { _id: state.runId },
     {
       $set: {
-        status: isSuccess ? "success" : "failed",
+        status: finalStatus,
         endedAt: new Date(),
         errorMessage,
         "liveMetrics.totalRequests": liveMetrics.totalRequests,
@@ -429,7 +435,7 @@ const finalize = async (state, exitCode) => {
       runId: state.runId,
       runName: state.runName,
       projectId: state.projectId,
-      status: isSuccess ? "success" : "failed",
+      status: finalStatus,
       errorMessage,
     });
   }
@@ -456,6 +462,62 @@ export const getActiveRunSnapshots = (projectId) =>
     .filter((snapshot) => !projectId || snapshot.projectId === projectId);
 
 export const hasActiveRun = (runId) => activeRuns.has(runId);
+
+export const stopActiveRun = async (runId, options = {}) => {
+  const state = activeRuns.get(runId);
+  if (!state || state.finalized) {
+    return {
+      success: false,
+      message: "Run is not currently active.",
+    };
+  }
+
+  state.stopRequested = true;
+  state.stopReason = String(options.reason ?? "Stopped by user.").trim() || "Stopped by user.";
+
+  const processRef = state.process;
+  if (!processRef) {
+    return {
+      success: true,
+      message: "Stop requested. Waiting for runner process...",
+    };
+  }
+
+  if (processRef.exitCode !== null) {
+    return {
+      success: true,
+      message: "Run is already finishing.",
+    };
+  }
+
+  try {
+    processRef.kill("SIGTERM");
+  } catch (error) {
+    return {
+      success: false,
+      message: String(error?.message ?? error ?? "Unable to stop run."),
+    };
+  }
+
+  const forceKillTimer = setTimeout(() => {
+    if (!state.finalized && processRef.exitCode === null) {
+      try {
+        processRef.kill("SIGKILL");
+      } catch {
+        // No-op if the process already exited.
+      }
+    }
+  }, 5000);
+
+  if (typeof forceKillTimer.unref === "function") {
+    forceKillTimer.unref();
+  }
+
+  return {
+    success: true,
+    message: "Stop requested.",
+  };
+};
 
 export const startK6Run = async (testRunDocument) => {
   const runId = testRunDocument._id.toString();

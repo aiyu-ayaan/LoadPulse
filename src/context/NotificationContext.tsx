@@ -147,13 +147,16 @@ export const NotificationProvider = ({ children }: { children: ReactNode }) => {
 
         activeRunIdsRef.current.delete(runId);
         const isSuccess = eventPayload.status === "success";
+        const isStopped = eventPayload.status === "stopped";
         addNotification({
           id: `run-completed:${runId}:${eventPayload.status ?? "unknown"}`,
-          type: isSuccess ? "success" : "error",
-          title: isSuccess ? "Test completed" : "Test failed",
+          type: isSuccess ? "success" : isStopped ? "warning" : "error",
+          title: isSuccess ? "Test completed" : isStopped ? "Test stopped" : "Test failed",
           message: isSuccess
             ? `${eventPayload.runName ?? "A test"} finished for ${resolveProjectName(eventPayload.projectId)}.`
-            : `${eventPayload.runName ?? "A test"} failed for ${resolveProjectName(eventPayload.projectId)}.${eventPayload.errorMessage ? ` ${eventPayload.errorMessage}` : ""}`,
+            : isStopped
+              ? `${eventPayload.runName ?? "A test"} was stopped for ${resolveProjectName(eventPayload.projectId)}.`
+              : `${eventPayload.runName ?? "A test"} failed for ${resolveProjectName(eventPayload.projectId)}.${eventPayload.errorMessage ? ` ${eventPayload.errorMessage}` : ""}`,
           projectId: eventPayload.projectId,
           runId,
           link: eventPayload.projectId ? buildProjectTestPath(eventPayload.projectId, runId) : "/projects",

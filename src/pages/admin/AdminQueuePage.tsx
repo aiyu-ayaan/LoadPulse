@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchAdminTestHistory, type TestHistoryItem } from "../../lib/api";
 
-const statusOptions = ["all", "queued", "running", "success", "failed"] as const;
+const statusOptions = ["all", "queued", "running", "success", "failed", "stopped"] as const;
 
 export const AdminQueuePage = () => {
   const [items, setItems] = useState<TestHistoryItem[]>([]);
@@ -90,6 +90,8 @@ export const AdminQueuePage = () => {
                       ? "bg-emerald-500/20 text-emerald-200"
                       : item.status === "failed"
                         ? "bg-rose-500/20 text-rose-200"
+                        : item.status === "stopped"
+                          ? "bg-amber-500/20 text-amber-200"
                         : "bg-primary/20 text-primary"
                   }`}
                 >

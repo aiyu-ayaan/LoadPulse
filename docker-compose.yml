@@ -33,7 +33,7 @@ services:
       PORT: ${BACKEND_PORT:-4000}
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB: ${MONGODB_DB:-loadpulse}
-      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
       REDIS_DEFAULT_TTL_SECONDS: ${REDIS_DEFAULT_TTL_SECONDS:-30}
       CLIENT_ORIGIN: ${CLIENT_ORIGIN:-http://localhost:4000}
     ports:

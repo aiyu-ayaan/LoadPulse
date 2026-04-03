@@ -480,5 +480,10 @@ export const deleteTestRun = (id: string) =>
     method: "DELETE",
   });
 
+export const stopTestRun = (id: string) =>
+  request<{ success: boolean; status: string; message: string }>(`/api/tests/${encodeURIComponent(id)}/stop`, {
+    method: "POST",
+  });
+
 export const fetchTestRun = (id: string) =>
   request<{ data: TestRunDetail }>(`/api/tests/${encodeURIComponent(id)}`);

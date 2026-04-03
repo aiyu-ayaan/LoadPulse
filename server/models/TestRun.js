@@ -67,7 +67,7 @@ const testRunSchema = new mongoose.Schema(
     script: { type: String, required: true },
     status: {
       type: String,
-      enum: ["queued", "running", "success", "failed"],
+      enum: ["queued", "running", "success", "failed", "stopped"],
       default: "queued",
     },
     startedAt: { type: Date, default: null },

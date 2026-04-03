@@ -13,7 +13,7 @@ import { Server } from "socket.io";
 import { Project } from "./models/Project.js";
 import { TestRun } from "./models/TestRun.js";
 import { User } from "./models/User.js";
-import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun } from "./services/k6Runner.js";
+import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun, stopActiveRun } from "./services/k6Runner.js";
 import {
   AUTH_TOKEN_MAX_AGE_SECONDS,
   TWO_FACTOR_TOKEN_MAX_AGE_SECONDS,
@@ -2232,6 +2232,59 @@ app.delete("/api/tests/history", async (req, res) => {
   res.json({
     deletedCount: result.deletedCount ?? 0,
     message: "Completed test history cleared.",
+  });
+});
+
+app.post("/api/tests/:id/stop", async (req, res) => {
+  const runId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(runId)) {
+    return res.status(400).json({ error: "Invalid test run id." });
+  }
+
+  const run = await TestRun.findById(runId).select({ projectId: 1, status: 1 }).lean();
+  if (!run) {
+    return res.status(404).json({ error: "Test run not found." });
+  }
+  if (!canRunProject(req.authUser, run.projectId)) {
+    return res.status(403).json({ error: "You do not have permission to stop this test run." });
+  }
+
+  if (!["queued", "running"].includes(String(run.status ?? ""))) {
+    return res.status(409).json({ error: "Only queued or running tests can be stopped." });
+  }
+
+  const stopResponse = await stopActiveRun(runId, {
+    reason: `Stopped by ${req.authUser.username}`,
+  });
+
+  if (!stopResponse.success) {
+    if (!hasActiveRun(runId)) {
+      await TestRun.updateOne(
+        { _id: runId, status: { $in: ["queued", "running"] } },
+        {
+          $set: {
+            status: "stopped",
+            endedAt: new Date(),
+            errorMessage: `Stopped by ${req.authUser.username}`,
+          },
+        },
+      );
+      await invalidateApiCache();
+      return res.json({
+        success: true,
+        status: "stopped",
+        message: "Run marked as stopped.",
+      });
+    }
+
+    return res.status(409).json({ error: stopResponse.message });
+  }
+
+  await invalidateApiCache();
+  return res.json({
+    success: true,
+    status: "stopping",
+    message: stopResponse.message,
   });
 });
 
