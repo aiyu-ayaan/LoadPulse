@@ -32,6 +32,28 @@ const isEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim(
 
 type TabKey = "profile" | "security" | "access";
 
+const toSafeString = (value: unknown) => String(value ?? "").trim();
+
+const toSafeProjectAccessMember = (value: Partial<ProjectAccessMember> | null | undefined): ProjectAccessMember => {
+  const email = toSafeString(value?.email).toLowerCase();
+  const username = toSafeString(value?.username);
+
+  return {
+    key: toSafeString(value?.key) || email || username || "unknown-member",
+    email,
+    username,
+    avatarDataUrl: toSafeString(value?.avatarDataUrl),
+    githubLinked: Boolean(value?.githubLinked),
+    hasAccount: Boolean(value?.hasAccount),
+    canView: Boolean(value?.canView || value?.canRun),
+    canRun: Boolean(value?.canRun),
+    isOwner: Boolean(value?.isOwner),
+    joinedVia: value?.joinedVia === "github" || value?.joinedVia === "local" || value?.joinedVia === "pending"
+      ? value.joinedVia
+      : "pending",
+  };
+};
+
 type MemberRowProps = {
   member: ProjectAccessMember;
   busy: boolean;
@@ -150,6 +172,8 @@ export const SettingsPage = () => {
   const [sharingEmail, setSharingEmail] = useState<string | null>(null);
   const [memberActionEmail, setMemberActionEmail] = useState<string | null>(null);
 
+  const canManageSelectedProject = Boolean(selectedProject?.access?.canManage);
+
   useEffect(() => {
     if (!user) {
       return;
@@ -160,7 +184,7 @@ export const SettingsPage = () => {
   }, [user]);
 
   const loadProjectAccess = useCallback(async () => {
-    if (!selectedProject?.access.canManage) {
+    if (!canManageSelectedProject || !selectedProject?.id) {
       setOwner(null);
       setMembers([]);
       return;
@@ -169,15 +193,22 @@ export const SettingsPage = () => {
     setAccessLoading(true);
     try {
       const response = await fetchProjectAccess(selectedProject.id);
-      setOwner(response.data.owner);
-      setMembers(response.data.members);
+      const safeOwner = toSafeProjectAccessMember(response?.data?.owner as Partial<ProjectAccessMember>);
+      const safeMembers = Array.isArray(response?.data?.members)
+        ? response.data.members.map((entry) => toSafeProjectAccessMember(entry))
+        : [];
+
+      setOwner(safeOwner.email || safeOwner.username ? safeOwner : null);
+      setMembers(safeMembers);
       setAccessError(null);
     } catch (requestError) {
       setAccessError(requestError instanceof Error ? requestError.message : "Unable to load project access.");
+      setOwner(null);
+      setMembers([]);
     } finally {
       setAccessLoading(false);
     }
-  }, [selectedProject]);
+  }, [canManageSelectedProject, selectedProject?.id]);
 
   useEffect(() => {
     if (activeTab === "access") {
@@ -195,7 +226,7 @@ export const SettingsPage = () => {
     if (activeTab !== "access") {
       return;
     }
-    if (!selectedProject?.access.canManage || searchTerm.trim().length < 2) {
+    if (!canManageSelectedProject || searchTerm.trim().length < 2) {
       setSearchResults([]);
       setSearchLoading(false);
       return;
@@ -210,7 +241,7 @@ export const SettingsPage = () => {
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [activeTab, searchTerm, selectedProject]);
+  }, [activeTab, canManageSelectedProject, searchTerm]);
 
   const inviteEmail = useMemo(() => {
     const trimmed = searchTerm.trim().toLowerCase();
@@ -737,7 +768,7 @@ export const SettingsPage = () => {
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-300">
                   Select a project first, then come back here to manage who can view it or run tests for it.
                 </div>
-              ) : !selectedProject.access.canManage ? (
+              ) : !canManageSelectedProject ? (
                 <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-300">
                   Only the project owner can manage sharing for this project.
                 </div>
@@ -795,13 +826,13 @@ export const SettingsPage = () => {
                         {searchLoading && <p className="text-sm text-slate-400">Searching existing users...</p>}
 
                         {!searchLoading &&
-                          searchResults.map((result) => (
-                            <div key={result.id} className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                          searchResults.map((result, index) => (
+                            <div key={result.id || result.email || `result-${index}`} className="rounded-2xl border border-white/10 bg-black/20 p-4">
                               <div className="flex items-center gap-3">
-                                <UserAvatar username={result.username} avatarDataUrl={result.avatarDataUrl} size="sm" />
+                                <UserAvatar username={result.username || result.email || "user"} avatarDataUrl={result.avatarDataUrl} size="sm" />
                                 <div className="min-w-0 flex-1">
-                                  <p className="truncate text-sm font-semibold text-white">{result.username}</p>
-                                  <p className="truncate text-xs text-slate-400">{result.email}</p>
+                                  <p className="truncate text-sm font-semibold text-white">{result.username || result.email || "Unknown user"}</p>
+                                  <p className="truncate text-xs text-slate-400">{result.email || "No email"}</p>
                                 </div>
                               </div>
                               <button
@@ -815,7 +846,7 @@ export const SettingsPage = () => {
                             </div>
                           ))}
 
-                        {inviteEmail && !searchResults.some((result) => result.email.toLowerCase() === inviteEmail) && (
+                        {inviteEmail && !searchResults.some((result) => String(result.email ?? "").toLowerCase() === inviteEmail) && (
                           <div className="rounded-2xl border border-dashed border-white/15 bg-black/20 p-4">
                             <p className="text-sm text-slate-300">
                               No existing user matched <span className="font-semibold text-white">{inviteEmail}</span> yet.
