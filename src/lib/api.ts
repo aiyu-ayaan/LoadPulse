@@ -203,6 +203,18 @@ interface TestHistoryResponse {
   total: number;
 }
 
+export interface AdminAboutResponse {
+  name: string;
+  version: string;
+  nodeVersion: string;
+  runtime: string;
+  acknowledgements: Array<{
+    name: string;
+    version: string;
+    type: "runtime" | "development";
+  }>;
+}
+
 export interface RunTestPayload {
   projectId: string;
   name: string;
@@ -394,6 +406,8 @@ export const searchUsers = (query: string) =>
 
 export const fetchAdminUsers = () => request<{ data: AdminUser[] }>("/api/admin/users");
 
+export const fetchAdminAbout = () => request<{ data: AdminAboutResponse }>("/api/admin/about");
+
 export const createAdminUser = (payload: { username: string; email: string; password: string; isAdmin?: boolean; isActive?: boolean }) =>
   request<{ data: AdminUser }>("/api/admin/users", {
     method: "POST",
@@ -441,6 +455,18 @@ export const fetchTestHistory = (projectId: string, search: string) => {
   if (search) {
     query.set("search", search);
   }
+  return request<TestHistoryResponse>(`/api/tests/history?${query.toString()}`);
+};
+
+export const fetchAdminTestHistory = (payload: { search?: string; status?: string; limit?: number }) => {
+  const query = new URLSearchParams();
+  if (payload.search) {
+    query.set("search", payload.search);
+  }
+  if (payload.status) {
+    query.set("status", payload.status);
+  }
+  query.set("limit", String(payload.limit ?? 100));
   return request<TestHistoryResponse>(`/api/tests/history?${query.toString()}`);
 };
 

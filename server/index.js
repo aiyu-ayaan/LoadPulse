@@ -48,6 +48,21 @@ const githubClientId = process.env.GITHUB_CLIENT_ID?.trim() || "";
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim() || "";
 const githubCallbackUrl = process.env.GITHUB_CALLBACK_URL?.trim() || "";
 const githubEnabled = Boolean(githubClientId && githubClientSecret && githubCallbackUrl);
+const packageJsonPath = path.resolve(process.cwd(), "package.json");
+
+let packageMetadata = {
+  name: "loadpulse",
+  version: "0.0.0",
+  dependencies: {},
+  devDependencies: {},
+};
+try {
+  if (fs.existsSync(packageJsonPath)) {
+    packageMetadata = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+  }
+} catch (error) {
+  console.warn("[metadata] Unable to read package.json for admin about page:", String(error?.message ?? error));
+}
 
 if (!mongoUri) {
   throw new Error("MONGODB_URI is required. Add it to your .env file.");
@@ -1511,6 +1526,25 @@ app.get("/api/admin/users", requireAdmin, async (_req, res) => {
 
   return res.json({
     data: users.map(toAdminUserResponse),
+  });
+});
+
+app.get("/api/admin/about", requireAdmin, async (_req, res) => {
+  const dependencies = Object.entries(packageMetadata.dependencies ?? {})
+    .map(([name, version]) => ({ name, version, type: "runtime" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const devDependencies = Object.entries(packageMetadata.devDependencies ?? {})
+    .map(([name, version]) => ({ name, version, type: "development" }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  return res.json({
+    data: {
+      name: packageMetadata.name ?? "loadpulse",
+      version: packageMetadata.version ?? "0.0.0",
+      nodeVersion: process.version,
+      runtime: "Node.js + Express + React + MongoDB + k6",
+      acknowledgements: [...dependencies, ...devDependencies],
+    },
   });
 });
 
