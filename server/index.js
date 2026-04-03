@@ -83,6 +83,14 @@ const resolvePrimaryClientOrigin = (originValue) => {
 const toObjectIdString = (value) => String(value ?? "");
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
 const clientAppOrigin = resolvePrimaryClientOrigin(clientOrigin);
+const AUTH_COOKIE_NAME = "loadpulse_auth";
+const authCookieSecure = clientAppOrigin.startsWith("https://");
+const authCookieBaseOptions = {
+  httpOnly: true,
+  sameSite: "lax",
+  secure: authCookieSecure,
+  path: "/",
+};
 
 const emptyDashboard = () => ({
   source: "empty",
@@ -798,8 +806,46 @@ const validatePasswordChangePayload = (payload) => {
   };
 };
 
+const parseCookieHeader = (headerValue) => {
+  const raw = String(headerValue ?? "");
+  if (!raw) {
+    return {};
+  }
+
+  const cookies = {};
+  for (const part of raw.split(";")) {
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex <= 0) {
+      continue;
+    }
+    const key = part.slice(0, separatorIndex).trim();
+    const value = part.slice(separatorIndex + 1).trim();
+    if (!key) {
+      continue;
+    }
+    cookies[key] = decodeURIComponent(value);
+  }
+  return cookies;
+};
+
+const readAuthCookieToken = (req) => {
+  const cookies = parseCookieHeader(req.headers.cookie);
+  return readBearerToken(cookies[AUTH_COOKIE_NAME]);
+};
+
+const setSessionCookie = (res, token) => {
+  res.cookie(AUTH_COOKIE_NAME, token, {
+    ...authCookieBaseOptions,
+    maxAge: AUTH_TOKEN_MAX_AGE_SECONDS * 1000,
+  });
+};
+
+const clearSessionCookie = (res) => {
+  res.clearCookie(AUTH_COOKIE_NAME, authCookieBaseOptions);
+};
+
 const authenticateRequest = async (req, res, next) => {
-  const token = readBearerToken(req.headers.authorization);
+  const token = readBearerToken(req.headers.authorization) ?? readAuthCookieToken(req);
   if (!token) {
     return res.status(401).json({ error: "Authorization token is required." });
   }
@@ -1026,6 +1072,12 @@ const createSessionResponse = async (user) => ({
   user: await buildSessionUser(user),
 });
 
+const sendSessionResponse = async (res, user, status = 200) => {
+  const session = await createSessionResponse(user);
+  setSessionCookie(res, session.token);
+  return res.status(status).json(session);
+};
+
 const fetchGithubJson = async (url, init = {}, defaultErrorMessage) => {
   const response = await fetch(url, init);
   const raw = await response.text();
@@ -1089,7 +1141,7 @@ app.post("/api/auth/signup", async (req, res) => {
     isActive: true,
   });
 
-  return res.status(201).json(await createSessionResponse(user));
+  return sendSessionResponse(res, user, 201);
 });
 
 app.post("/api/auth/setup-admin", async (req, res) => {
@@ -1119,7 +1171,7 @@ app.post("/api/auth/setup-admin", async (req, res) => {
     isActive: true,
   });
 
-  return res.status(201).json(await createSessionResponse(user));
+  return sendSessionResponse(res, user, 201);
 });
 
 app.post("/api/auth/signin", async (req, res) => {
@@ -1159,7 +1211,7 @@ app.post("/api/auth/signin", async (req, res) => {
     });
   }
 
-  return res.json(await createSessionResponse(user));
+  return sendSessionResponse(res, user);
 });
 
 app.get("/api/auth/github/start", async (_req, res) => {
@@ -1329,6 +1381,7 @@ app.get("/api/auth/github/callback", async (req, res) => {
     }
 
     const session = await createSessionResponse(user);
+    setSessionCookie(res, session.token);
     return res.redirect(
       resolveClientAuthRedirect({
         token: session.token,
@@ -1377,7 +1430,12 @@ app.post("/api/auth/verify-2fa", async (req, res) => {
     return res.status(401).json({ error: "Invalid verification code." });
   }
 
-  return res.json(await createSessionResponse(user));
+  return sendSessionResponse(res, user);
+});
+
+app.post("/api/auth/signout", async (_req, res) => {
+  clearSessionCookie(res);
+  return res.status(204).end();
 });
 
 app.use("/api", (req, res, next) => {
@@ -1390,6 +1448,7 @@ app.use("/api", (req, res, next) => {
     req.path === "/auth/github/start-admin" ||
     req.path === "/auth/github/callback" ||
     req.path === "/auth/verify-2fa" ||
+    req.path === "/auth/signout" ||
     req.path === "/auth/setup-status" ||
     req.path === "/auth/setup-admin"
   ) {

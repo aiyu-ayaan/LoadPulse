@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import {
   fetchCurrentUser,
   setAuthToken,
+  signOutSession,
   signIn,
   signUp,
   type AuthUser,
@@ -74,6 +75,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signOut = useCallback(() => {
+    void signOutSession().catch(() => {
+      // Ignore sign-out request errors and clear local session anyway.
+    });
     setAuthToken(null);
     setUser(null);
   }, []);

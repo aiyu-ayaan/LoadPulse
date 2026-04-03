@@ -293,6 +293,7 @@ const request = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers,
+    credentials: init?.credentials ?? "include",
   });
 
   if (!response.ok) {
@@ -337,6 +338,11 @@ export const verifyTwoFactorSignIn = (payload: { pendingToken: string; code: str
   request<AuthSessionResponse>("/api/auth/verify-2fa", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+
+export const signOutSession = () =>
+  request<null>("/api/auth/signout", {
+    method: "POST",
   });
 
 export const updateProfile = (payload: UpdateProfilePayload) =>
