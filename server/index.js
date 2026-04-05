@@ -4399,6 +4399,12 @@ app.post("/api/projects/:id/ai/test-config", async (req, res) => {
   const project = runResult.project;
   const seedTargetUrl = value.targetUrl || project.baseUrl;
 
+  // Check if AI is configured BEFORE consuming credits
+  const aiChain = await loadEnabledAiExecutionChain();
+  if (aiChain.length === 0) {
+    return res.status(503).json({ error: "No enabled AI models are configured. Add AI integration and models in Admin > AI." });
+  }
+
   const aiCreditCheck = await consumeAiPromptCredit(req.authUser);
   if (!aiCreditCheck.allowed) {
     return res.status(aiCreditCheck.status).json({
@@ -4737,6 +4743,12 @@ app.post("/api/tests/:id/ai-summary/generate", async (req, res) => {
     });
   }
 
+  // Check if AI is configured BEFORE consuming credits
+  const aiChain = await loadEnabledAiExecutionChain();
+  if (aiChain.length === 0) {
+    return res.status(503).json({ error: "No enabled AI models are configured. Add AI integration and models in Admin > AI." });
+  }
+
   const aiCreditCheck = await consumeAiPromptCredit(req.authUser);
   if (!aiCreditCheck.allowed) {
     return res.status(aiCreditCheck.status).json({
@@ -4773,6 +4785,12 @@ app.post("/api/tests/:id/ai-summary/regenerate", async (req, res) => {
   }
   if (!TERMINAL_TEST_STATUSES.has(String(run.status ?? ""))) {
     return res.status(409).json({ error: "AI summary is available after the run finishes." });
+  }
+
+  // Check if AI is configured BEFORE consuming credits
+  const aiChain = await loadEnabledAiExecutionChain();
+  if (aiChain.length === 0) {
+    return res.status(503).json({ error: "No enabled AI models are configured. Add AI integration and models in Admin > AI." });
   }
 
   const aiCreditCheck = await consumeAiPromptCredit(req.authUser);
