@@ -31,7 +31,8 @@ export const NewTestPage = () => {
   const { selectedProject } = useProjects();
   const { addNotification } = useNotifications();
 
-  const [name, setName] = useState("Homepage Experience Check");
+  const [name, setName] = useState("Load Test (20 VUs for 30s)");
+  const [isNameDirty, setIsNameDirty] = useState(false);
   const [targetUrl, setTargetUrl] = useState(selectedProject?.baseUrl ?? "https://");
   const [vus, setVus] = useState(20);
   const [duration, setDuration] = useState("30s");
@@ -59,6 +60,12 @@ export const NewTestPage = () => {
       setScript(buildTemplateScript(targetUrl, vus, duration));
     }
   }, [targetUrl, vus, duration, isScriptDirty]);
+
+  useEffect(() => {
+    if (!isNameDirty) {
+      setName(`${type} Test (${vus} VUs for ${duration})`);
+    }
+  }, [type, vus, duration, isNameDirty]);
 
   const handleRunTest = async () => {
     if (!selectedProject) {
@@ -153,7 +160,10 @@ export const NewTestPage = () => {
               <input
                 type="text"
                 value={name}
-                onChange={(event) => setName(event.target.value)}
+                onChange={(event) => {
+                  setName(event.target.value);
+                  setIsNameDirty(true);
+                }}
                 className="w-full rounded-xl border border-white/10 bg-black/20 py-2.5 px-4 text-sm text-slate-100 outline-none transition-colors focus:border-primary/50"
               />
             </div>
