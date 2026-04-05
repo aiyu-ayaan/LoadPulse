@@ -19,6 +19,7 @@ import { useNavigate } from "react-router-dom";
 import { EmptyState } from "../components/EmptyState";
 import { HelperNote } from "../components/HelperNote";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
+import { RichTextView } from "../components/RichTextView";
 import { useProjects } from "../context/useProjects";
 import {
   fetchAiRuntimeSettings,
@@ -33,7 +34,6 @@ import {
   type TestRunDetail,
 } from "../lib/api";
 import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
-import { renderRichTextToHtml } from "../lib/rich-text";
 
 type PercentilePoint = {
   time: string;
@@ -602,9 +602,9 @@ export const ReportsPage = () => {
             <p className="text-xs text-slate-500">
               Model: {selectedRunAiSummary.modelName} ({selectedRunAiSummary.provider}) • {selectedRunAiSummary.integrationName}
             </p>
-            <div
-              className="ai-rich-content rounded-xl border border-white/10 bg-black/25 p-4"
-              dangerouslySetInnerHTML={{ __html: renderRichTextToHtml(selectedRunAiSummary.text) }}
+            <RichTextView
+              content={selectedRunAiSummary.text}
+              className="rounded-xl border border-white/10 bg-black/25 p-4"
             />
           </div>
         ) : (

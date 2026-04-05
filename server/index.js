@@ -885,6 +885,28 @@ const parseAiContentToText = (value) => {
   return "";
 };
 
+const normalizeAiSummaryMarkdown = (value) => {
+  let text = String(value ?? "").trim();
+  if (!text) {
+    return "";
+  }
+
+  text = text
+    .replace(/<think\b[^>]*>[\s\S]*?<\/think>/gi, "")
+    .replace(/<analysis\b[^>]*>[\s\S]*?<\/analysis>/gi, "")
+    .trim();
+
+  const fencedMarkdown = text.match(/^```(?:markdown|md)?\s*([\s\S]*?)\s*```$/i);
+  if (fencedMarkdown?.[1]) {
+    text = fencedMarkdown[1].trim();
+  }
+
+  return text
+    .replace(/\r\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+};
+
 const truncateText = (value, maxLength = 12000) => {
   const text = String(value ?? "");
   if (!text) {
@@ -1391,15 +1413,26 @@ const generateRunAiSummary = async (runDoc, options = {}) => {
     temperature: 0.2,
     maxTokens: 800,
     systemPrompt:
-      "You are a senior performance testing analyst. Provide actionable, plain-language insights from k6 metrics.",
-    userPrompt: `Analyze this single load-test result and return markdown with these sections:
-- Summary
-- Key Findings
-- Risk Level (Low/Medium/High with reason)
-- Recommended Actions (max 5)
-- Next Test Plan (max 3)
+      "You are a senior performance testing analyst. Respond in concise, practical GitHub-flavored Markdown only.",
+    userPrompt: `Analyze this single load-test result and return ONLY Markdown.
 
-Keep it concise, practical, and non-generic.
+Output rules:
+- Return Markdown only. Do not return JSON, XML, HTML, or prose outside the report.
+- Do not wrap the whole response in triple backticks.
+- Keep recommendations specific to the metrics provided.
+- Keep the report concise and non-generic.
+
+Required sections (use these exact headings):
+## Summary
+## Key Findings
+## Risk Level
+Include one label: Low, Medium, or High, with a short reason.
+## Optimization Suggestions
+Provide 3 to 6 concrete optimization suggestions, prioritized.
+## Recommended Actions
+Provide up to 5 immediate actions.
+## Next Test Plan
+Provide up to 3 follow-up test ideas.
 
 Run data:
 ${JSON.stringify(runContext, null, 2)}`,
@@ -1411,8 +1444,13 @@ ${JSON.stringify(runContext, null, 2)}`,
     actor: options?.actor ?? null,
   });
 
+  const summaryText = normalizeAiSummaryMarkdown(aiResponse.text);
+  if (!summaryText) {
+    throw new Error("AI returned an empty summary.");
+  }
+
   const summaryRecord = {
-    text: String(aiResponse.text ?? "").trim(),
+    text: summaryText,
     generatedAt: new Date(),
     modelId: aiResponse.model._id,
     modelName: aiResponse.model.name,
@@ -4088,25 +4126,25 @@ Requirements:
 
 Project:
 ${JSON.stringify(
-  {
-    projectId: toObjectIdString(project._id),
-    projectName: project.name,
-    projectBaseUrl: project.baseUrl,
-  },
-  null,
-  2,
-)}
+        {
+          projectId: toObjectIdString(project._id),
+          projectName: project.name,
+          projectBaseUrl: project.baseUrl,
+        },
+        null,
+        2,
+      )}
 
 User intent:
 ${JSON.stringify(
-  {
-    goal: value.goal,
-    targetUrl: seedTargetUrl,
-    typeHint: value.type || "Load",
-  },
-  null,
-  2,
-)}`,
+        {
+          goal: value.goal,
+          targetUrl: seedTargetUrl,
+          typeHint: value.type || "Load",
+        },
+        null,
+        2,
+      )}`,
     }, {
       contextType: "test-config",
       contextAction: "generate",

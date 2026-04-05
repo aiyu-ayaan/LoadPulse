@@ -11,7 +11,7 @@ import {
   stopTestRun,
   type TestRunDetail,
 } from "../lib/api";
-import { renderRichTextToHtml } from "../lib/rich-text";
+import { RichTextView } from "../components/RichTextView";
 
 const toStatusData = (detail: TestRunDetail | null) => {
   const counts = detail?.finalMetrics?.statusCodes ?? detail?.liveMetrics?.statusCodes;
@@ -273,9 +273,9 @@ export const TestDetailsPage = () => {
                 <p className="text-xs text-slate-500">
                   Generated via {aiSummary.modelName} ({aiSummary.provider}) • {aiSummary.integrationName}
                 </p>
-                <div
-                  className="ai-rich-content rounded-xl border border-white/10 bg-black/25 p-4"
-                  dangerouslySetInnerHTML={{ __html: renderRichTextToHtml(aiSummary.text) }}
+                <RichTextView
+                  content={aiSummary.text}
+                  className="rounded-xl border border-white/10 bg-black/25 p-4"
                 />
               </div>
             ) : (
