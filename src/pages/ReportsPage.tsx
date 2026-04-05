@@ -34,6 +34,7 @@ import {
   type TestRunDetail,
 } from "../lib/api";
 import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
+import { renderRichTextToHtml } from "../lib/rich-text";
 
 type PercentilePoint = {
   time: string;
@@ -190,6 +191,14 @@ const formatMetricDate = (value: string | null) => {
   });
 };
 
+const escapeHtml = (value: string | number | null | undefined) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 export const ReportsPage = () => {
   const navigate = useNavigate();
   const { selectedProject } = useProjects();
@@ -204,6 +213,7 @@ export const ReportsPage = () => {
   const [aiSummaryError, setAiSummaryError] = useState<string | null>(null);
   const [aiLoadingRunId, setAiLoadingRunId] = useState<string | null>(null);
   const [autoGenerateAiSummary, setAutoGenerateAiSummary] = useState(false);
+  const [isPdfExporting, setIsPdfExporting] = useState(false);
   const pollingRef = useRef<number | null>(null);
 
   const loadReport = useCallback(async () => {
@@ -447,62 +457,524 @@ export const ReportsPage = () => {
     }
   };
 
-  const downloadPdfReport = () => {
-    if (!selectedProject || !selectedRun) {
+  const downloadPdfReport = async () => {
+    if (!selectedProject || !selectedRun || isPdfExporting) {
       return;
     }
 
-    const latency = Math.round(selectedRun.finalMetrics?.avgLatencyMs ?? selectedRun.liveMetrics?.avgLatencyMs ?? 0);
-    const p95 = Math.round(selectedRun.finalMetrics?.p95LatencyMs ?? latency * 1.35);
-    const p99 = Math.round(selectedRun.finalMetrics?.p99LatencyMs ?? latency * 1.65);
-    const throughput = (selectedRun.finalMetrics?.throughputRps ?? selectedRun.liveMetrics?.throughputRps ?? 0).toFixed(2);
-    const errorRate = (selectedRun.finalMetrics?.errorRatePct ?? selectedRun.liveMetrics?.errorRatePct ?? 0).toFixed(2);
+    setIsPdfExporting(true);
+    setError(null);
 
-    const popup = window.open("", "_blank", "width=1080,height=900");
-    if (!popup) {
-      setError("Popup blocked. Please allow popups to export the report as PDF.");
-      return;
-    }
+    try {
+      const latency = Math.round(selectedRun.finalMetrics?.avgLatencyMs ?? selectedRun.liveMetrics?.avgLatencyMs ?? 0);
+      const p95 = Math.round(selectedRun.finalMetrics?.p95LatencyMs ?? latency * 1.35);
+      const p99 = Math.round(selectedRun.finalMetrics?.p99LatencyMs ?? latency * 1.65);
+      const throughput = (selectedRun.finalMetrics?.throughputRps ?? selectedRun.liveMetrics?.throughputRps ?? 0).toFixed(2);
+      const errorRate = (selectedRun.finalMetrics?.errorRatePct ?? selectedRun.liveMetrics?.errorRatePct ?? 0).toFixed(2);
 
-    popup.document.write(`<!DOCTYPE html>
+      let summaryForPdf = selectedRunAiSummary;
+      if (!summaryForPdf?.text && canGenerateAiSummary) {
+        try {
+          const response = await generateTestRunAiSummary(selectedRun.id);
+          summaryForPdf = response.data;
+          setAiSummariesByRunId((previous) => ({
+            ...previous,
+            [selectedRun.id]: response.data,
+          }));
+        } catch {
+          setError("Unable to preload AI summary for this PDF. Exported without AI summary.");
+        }
+      }
+
+      const aiSummaryHtml = summaryForPdf?.text
+        ? renderRichTextToHtml(summaryForPdf.text)
+        : "<p class=\"summary-empty\">AI summary was not available for this run.</p>";
+
+      const anomalyItems = anomalies
+        .map(
+          (item) =>
+            `<li class=\"anomaly-item\"><span class=\"anomaly-level anomaly-${item.level.toLowerCase()}\">${escapeHtml(item.level)}</span><span>${escapeHtml(item.message)}</span></li>`,
+        )
+        .join("");
+
+      const statusToneClass =
+        selectedRun.status === "success"
+          ? "status-success"
+          : selectedRun.status === "failed"
+            ? "status-failed"
+            : selectedRun.status === "stopped"
+              ? "status-stopped"
+              : "status-running";
+
+      const popup = window.open("", "_blank", "width=1160,height=980");
+      if (!popup) {
+        setError("Popup blocked. Please allow popups to export the report as PDF.");
+        return;
+      }
+
+      popup.document.write(`<!DOCTYPE html>
 <html>
   <head>
-    <title>${selectedProject.name} Report</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LoadPulse Report • ${escapeHtml(selectedProject.name)}</title>
     <style>
-      body { font-family: Arial, sans-serif; padding: 32px; color: #111827; }
-      h1, h2 { margin-bottom: 8px; }
-      .meta { color: #4b5563; margin-bottom: 24px; }
-      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 24px 0; }
-      .card { border: 1px solid #d1d5db; border-radius: 14px; padding: 16px; }
-      .label { font-size: 12px; text-transform: uppercase; color: #6b7280; margin-bottom: 6px; }
-      .value { font-size: 28px; font-weight: 700; }
-      ul { padding-left: 18px; }
-      code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
+      :root {
+        --bg: #090f1d;
+        --panel: #101a2f;
+        --panel-soft: #121f38;
+        --line: rgba(148, 163, 184, 0.28);
+        --text: #e2e8f0;
+        --muted: #94a3b8;
+        --blue: #3b82f6;
+        --cyan: #22d3ee;
+        --teal: #14b8a6;
+        --emerald: #10b981;
+        --rose: #f43f5e;
+        --amber: #f59e0b;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top right, rgba(59, 130, 246, 0.28), transparent 40%),
+          radial-gradient(circle at 10% 90%, rgba(20, 184, 166, 0.2), transparent 45%),
+          var(--bg);
+        font-family: "Segoe UI", "Arial", sans-serif;
+      }
+
+      body {
+        padding: 26px;
+      }
+
+      .sheet {
+        max-width: 1060px;
+        margin: 0 auto;
+        border: 1px solid rgba(148, 163, 184, 0.24);
+        border-radius: 18px;
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(9, 15, 29, 0.97));
+        box-shadow: 0 22px 70px rgba(2, 6, 23, 0.55);
+        overflow: hidden;
+      }
+
+      .header {
+        padding: 22px 24px;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(90deg, rgba(59, 130, 246, 0.14), rgba(34, 211, 238, 0.08));
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        gap: 12px;
+      }
+
+      .brand {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .brand-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        border: 1px solid rgba(96, 165, 250, 0.45);
+        background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(20, 184, 166, 0.22));
+        color: #dbeafe;
+        display: grid;
+        place-content: center;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+
+      .app-name {
+        margin: 0;
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: #cbd5e1;
+      }
+
+      .title {
+        margin: 4px 0 0;
+        font-size: 30px;
+        letter-spacing: -0.02em;
+      }
+
+      .subtitle {
+        margin: 7px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .status {
+        border-radius: 999px;
+        padding: 7px 12px;
+        border: 1px solid transparent;
+        text-transform: uppercase;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.11em;
+      }
+
+      .status-success {
+        color: #a7f3d0;
+        background: rgba(16, 185, 129, 0.18);
+        border-color: rgba(16, 185, 129, 0.4);
+      }
+
+      .status-failed {
+        color: #fecdd3;
+        background: rgba(244, 63, 94, 0.16);
+        border-color: rgba(244, 63, 94, 0.4);
+      }
+
+      .status-stopped {
+        color: #fde68a;
+        background: rgba(245, 158, 11, 0.16);
+        border-color: rgba(245, 158, 11, 0.4);
+      }
+
+      .status-running {
+        color: #bfdbfe;
+        background: rgba(59, 130, 246, 0.16);
+        border-color: rgba(59, 130, 246, 0.4);
+      }
+
+      .content {
+        padding: 22px 24px 26px;
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .meta-item {
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.55);
+        padding: 10px 12px;
+      }
+
+      .meta-label {
+        margin: 0;
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: #93c5fd;
+      }
+
+      .meta-value {
+        margin: 5px 0 0;
+        font-size: 13px;
+        color: #f8fafc;
+      }
+
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 12px;
+      }
+
+      .metric-card {
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(15, 23, 42, 0.42));
+        padding: 12px;
+      }
+
+      .metric-label {
+        color: var(--muted);
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.07em;
+      }
+
+      .metric-value {
+        margin-top: 6px;
+        font-size: 31px;
+        font-weight: 800;
+        letter-spacing: -0.02em;
+      }
+
+      .section {
+        margin-top: 18px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        background: rgba(15, 23, 42, 0.5);
+      }
+
+      .section-title {
+        margin: 0 0 9px;
+        color: #dbeafe;
+        font-size: 17px;
+      }
+
+      .section-meta {
+        margin: 0 0 11px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .summary-empty {
+        color: var(--muted);
+        margin: 0;
+      }
+
+      .details-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .detail-box {
+        border: 1px dashed rgba(148, 163, 184, 0.34);
+        border-radius: 10px;
+        padding: 10px;
+        background: rgba(2, 6, 23, 0.45);
+      }
+
+      .detail-label {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .detail-value {
+        margin: 6px 0 0;
+        font-size: 16px;
+        color: #f8fafc;
+      }
+
+      .anomalies {
+        margin: 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 8px;
+      }
+
+      .anomaly-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        border-radius: 10px;
+        padding: 9px 10px;
+        border: 1px solid var(--line);
+        background: rgba(15, 23, 42, 0.5);
+        font-size: 13px;
+      }
+
+      .anomaly-level {
+        border-radius: 999px;
+        padding: 3px 8px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.07em;
+        text-transform: uppercase;
+      }
+
+      .anomaly-alert {
+        color: #fecdd3;
+        border: 1px solid rgba(244, 63, 94, 0.45);
+        background: rgba(244, 63, 94, 0.16);
+      }
+
+      .anomaly-warning {
+        color: #fde68a;
+        border: 1px solid rgba(245, 158, 11, 0.45);
+        background: rgba(245, 158, 11, 0.16);
+      }
+
+      .anomaly-info {
+        color: #bfdbfe;
+        border: 1px solid rgba(59, 130, 246, 0.45);
+        background: rgba(59, 130, 246, 0.16);
+      }
+
+      .ai-rich-content {
+        color: #e2e8f0;
+        font-size: 13px;
+        line-height: 1.6;
+      }
+
+      .ai-rich-content h1,
+      .ai-rich-content h2,
+      .ai-rich-content h3 {
+        color: #dbeafe;
+        margin: 10px 0 6px;
+      }
+
+      .ai-rich-content h1 {
+        font-size: 19px;
+      }
+
+      .ai-rich-content h2 {
+        font-size: 16px;
+      }
+
+      .ai-rich-content h3 {
+        font-size: 14px;
+      }
+
+      .ai-rich-content p,
+      .ai-rich-content ul,
+      .ai-rich-content ol {
+        margin: 6px 0;
+      }
+
+      .ai-rich-content ul,
+      .ai-rich-content ol {
+        padding-left: 18px;
+      }
+
+      .ai-rich-content code {
+        background: rgba(2, 6, 23, 0.75);
+        border: 1px solid rgba(34, 211, 238, 0.25);
+        border-radius: 5px;
+        padding: 1px 5px;
+        color: #bae6fd;
+      }
+
+      .ai-rich-content pre {
+        background: rgba(2, 6, 23, 0.75);
+        border: 1px solid rgba(148, 163, 184, 0.28);
+        border-radius: 8px;
+        padding: 8px;
+        overflow-x: auto;
+      }
+
+      .footer {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 11px;
+        text-align: right;
+      }
+
+      @media print {
+        @page {
+          size: A4;
+          margin: 10mm;
+        }
+
+        html,
+        body {
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+          padding: 0;
+        }
+
+        .sheet {
+          border-radius: 0;
+          box-shadow: none;
+        }
+      }
     </style>
   </head>
   <body>
-    <h1>${selectedProject.name} Performance Report</h1>
-    <div class="meta">Selected run: ${selectedRun.name} | Created: ${formatMetricDate(selectedRun.createdAt)} | Status: ${selectedRun.status}</div>
-    <p>This printable report shows the currently selected run. Trend comparison in the app uses the latest 10 runs.</p>
-    <div class="grid">
-      <div class="card"><div class="label">Average latency</div><div class="value">${latency}ms</div></div>
-      <div class="card"><div class="label">Error rate</div><div class="value">${errorRate}%</div></div>
-      <div class="card"><div class="label">p95 latency</div><div class="value">${p95}ms</div></div>
-      <div class="card"><div class="label">p99 latency</div><div class="value">${p99}ms</div></div>
-      <div class="card"><div class="label">Throughput</div><div class="value">${throughput} rps</div></div>
-      <div class="card"><div class="label">Target</div><div class="value" style="font-size:16px">${selectedRun.targetUrl}</div></div>
-    </div>
-    <h2>Anomalies</h2>
-    <ul>${anomalies.map((item) => `<li><strong>${item.level}</strong> ${item.message}</li>`).join("")}</ul>
-    <h2>Run details</h2>
-    <p>Test type: <code>${selectedRun.type}</code></p>
-    <p>Virtual users: <code>${selectedRun.vus}</code></p>
-    <p>Duration: <code>${selectedRun.duration}</code></p>
+    <main class="sheet">
+      <header class="header">
+        <div class="brand">
+          <div class="brand-mark">LP</div>
+          <div>
+            <p class="app-name">LoadPulse</p>
+            <h1 class="title">Performance Report</h1>
+            <p class="subtitle">Project report snapshot generated from the selected test run</p>
+          </div>
+        </div>
+        <div class="status ${statusToneClass}">${escapeHtml(selectedRun.status)}</div>
+      </header>
+
+      <section class="content">
+        <div class="meta-grid">
+          <div class="meta-item">
+            <p class="meta-label">Project</p>
+            <p class="meta-value">${escapeHtml(selectedProject.name)}</p>
+          </div>
+          <div class="meta-item">
+            <p class="meta-label">Selected Run</p>
+            <p class="meta-value">${escapeHtml(selectedRun.name)}</p>
+          </div>
+          <div class="meta-item">
+            <p class="meta-label">Created</p>
+            <p class="meta-value">${escapeHtml(formatMetricDate(selectedRun.createdAt))}</p>
+          </div>
+        </div>
+
+        <div class="metrics-grid">
+          <div class="metric-card"><div class="metric-label">Average latency</div><div class="metric-value">${latency}ms</div></div>
+          <div class="metric-card"><div class="metric-label">Error rate</div><div class="metric-value">${errorRate}%</div></div>
+          <div class="metric-card"><div class="metric-label">p95 latency</div><div class="metric-value">${p95}ms</div></div>
+          <div class="metric-card"><div class="metric-label">p99 latency</div><div class="metric-value">${p99}ms</div></div>
+          <div class="metric-card"><div class="metric-label">Throughput</div><div class="metric-value">${throughput} rps</div></div>
+          <div class="metric-card"><div class="metric-label">Target URL</div><div class="metric-value" style="font-size: 18px;">${escapeHtml(selectedRun.targetUrl)}</div></div>
+        </div>
+
+        <section class="section">
+          <h2 class="section-title">AI Executive Summary</h2>
+          ${summaryForPdf ? `<p class=\"section-meta\">Generated via ${escapeHtml(summaryForPdf.modelName)} (${escapeHtml(summaryForPdf.provider)}) • ${escapeHtml(summaryForPdf.integrationName)}</p>` : ""}
+          <div class="ai-rich-content">${aiSummaryHtml}</div>
+        </section>
+
+        <section class="section">
+          <h2 class="section-title">Anomalies</h2>
+          <ul class="anomalies">${anomalyItems}</ul>
+        </section>
+
+        <section class="section">
+          <h2 class="section-title">Run Details</h2>
+          <div class="details-grid">
+            <div class="detail-box">
+              <p class="detail-label">Test Type</p>
+              <p class="detail-value">${escapeHtml(selectedRun.type)}</p>
+            </div>
+            <div class="detail-box">
+              <p class="detail-label">Virtual Users</p>
+              <p class="detail-value">${escapeHtml(String(selectedRun.vus))}</p>
+            </div>
+            <div class="detail-box">
+              <p class="detail-label">Duration</p>
+              <p class="detail-value">${escapeHtml(selectedRun.duration)}</p>
+            </div>
+            <div class="detail-box">
+              <p class="detail-label">Compared Against</p>
+              <p class="detail-value">${escapeHtml(previousRun?.name ?? "No previous run")}</p>
+            </div>
+            <div class="detail-box">
+              <p class="detail-label">Recent Snapshots</p>
+              <p class="detail-value">${escapeHtml(String(history.length))}</p>
+            </div>
+            <div class="detail-box">
+              <p class="detail-label">Generated At</p>
+              <p class="detail-value">${escapeHtml(formatMetricDate(new Date().toISOString()))}</p>
+            </div>
+          </div>
+        </section>
+
+        <div class="footer">LoadPulse • ${escapeHtml(window.location.origin)}</div>
+      </section>
+    </main>
   </body>
 </html>`);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+      popup.document.close();
+      popup.focus();
+      popup.print();
+    } finally {
+      setIsPdfExporting(false);
+    }
   };
 
   if (!selectedProject) {
@@ -556,10 +1028,11 @@ export const ReportsPage = () => {
             <Share2 className="h-4 w-4" /> {isSharing ? "Sharing..." : "Share"}
           </button>
           <button
-            onClick={downloadPdfReport}
-            className="bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-primary/20"
+            onClick={() => void downloadPdfReport()}
+            disabled={isPdfExporting}
+            className="bg-primary hover:bg-primary/90 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 transition-all shadow-lg shadow-primary/20 disabled:cursor-not-allowed disabled:opacity-70"
           >
-            <Download className="h-4 w-4" /> Download PDF Report
+            <Download className="h-4 w-4" /> {isPdfExporting ? "Preparing PDF..." : "Download PDF Report"}
           </button>
         </div>
       </div>
