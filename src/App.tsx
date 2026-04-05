@@ -17,6 +17,7 @@ import { AdminAccountsPage } from './pages/admin/AdminAccountsPage';
 import { AdminQueuePage } from './pages/admin/AdminQueuePage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAboutPage } from './pages/admin/AdminAboutPage';
+import { AdminAiPage } from './pages/admin/AdminAiPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { useAuth } from './context/useAuth';
 
@@ -70,11 +71,12 @@ function App() {
         <Route
           path="/admin/signin"
           element={
-            isAuthenticated && user?.isAdmin ? <Navigate to="/admin/accounts" replace /> : <AdminSignInPage />
+            isAuthenticated && user?.isAdmin ? <Navigate to="/admin/ai" replace /> : <AdminSignInPage />
           }
         />
         <Route path="/admin" element={<RequireAdmin><AdminConsoleLayout /></RequireAdmin>}>
-          <Route index element={<Navigate to="/admin/accounts" replace />} />
+          <Route index element={<Navigate to="/admin/ai" replace />} />
+          <Route path="ai" element={<AdminAiPage />} />
           <Route path="accounts" element={<AdminAccountsPage />} />
           <Route path="queue" element={<AdminQueuePage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
