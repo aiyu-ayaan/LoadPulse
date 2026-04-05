@@ -1,5 +1,41 @@
 # Changelog
 
+## [1.1.0](https://github.com/aiyu-ayaan/LoadPulse/compare/v1.0.1...v1.1.0) (2026-04-05)
+
+
+### Features
+
+* add NewTestPage for configuring and initiating load tests ([b2f0256](https://github.com/aiyu-ayaan/LoadPulse/commit/b2f0256009045631e6a3840337aaf8591367f5fb))
+* add p95 and p99 latency metrics to live metrics and update related interfaces ([2a48b2f](https://github.com/aiyu-ayaan/LoadPulse/commit/2a48b2fd21bb64cf4550eb52c4dbbc099a338c80))
+* add PM2 support for clustering and integration scheduler ([f482564](https://github.com/aiyu-ayaan/LoadPulse/commit/f482564d91feacb6cceced51a4a6846f2f964b0f))
+* **admin-ui:** add AI management workspace and make it admin home ([f6c88a6](https://github.com/aiyu-ayaan/LoadPulse/commit/f6c88a6e9fa4d3e44aa0951693aff652669f851a))
+* **ai-backend:** persist runtime settings and usage history with explicit summary generation ([506c234](https://github.com/aiyu-ayaan/LoadPulse/commit/506c2340bfdf2d59f47f072e67d57ba960cdf91c))
+* **ai-ui:** add admin AI history, auto-generate toggle, and manual summary generation flow ([3e8f1b8](https://github.com/aiyu-ayaan/LoadPulse/commit/3e8f1b8b7ff99dc9fe0409859985fe8a0ff836fc))
+* **ai:** add checks for AI configuration before consuming credits ([c0c8153](https://github.com/aiyu-ayaan/LoadPulse/commit/c0c815328fdd4b96fdbcc683cb19f1f2a9592c14))
+* **ai:** implement AI credit system with user limits and reset intervals ([27845e5](https://github.com/aiyu-ayaan/LoadPulse/commit/27845e53c306237a48e911ed9f3c5dba92ac278a))
+* **api:** add admin AI client types and endpoints ([a8c5f2e](https://github.com/aiyu-ayaan/LoadPulse/commit/a8c5f2e466b026564645d222f5f8627b1ca311bd))
+* **api:** add AI test summary and AI test-plan endpoints to client layer ([37307d7](https://github.com/aiyu-ayaan/LoadPulse/commit/37307d78b3047896317494f8b6188c4084245fb5))
+* **auth:** integrate user refresh functionality in multiple pages ([b09f1f5](https://github.com/aiyu-ayaan/LoadPulse/commit/b09f1f52a5e763b2e74b5badb0ee497f1cded94c))
+* enhance NewTestPage input handling and script generation for load tests ([498adbe](https://github.com/aiyu-ayaan/LoadPulse/commit/498adbea000b2c25a8a785085a41fef05803b0ef))
+* enhance NewTestPage with improved UI components and script handling ([f78b841](https://github.com/aiyu-ayaan/LoadPulse/commit/f78b84134e0d94160fcab762a731835f04e19a15))
+* **env:** add MongoDB TLS and data encryption settings to environment configuration ([c79de8f](https://github.com/aiyu-ayaan/LoadPulse/commit/c79de8f6a08ccbacca74bdac9b1293f783ab751d))
+* implement NewTestPage for configuring and running k6 load tests ([7a27c8e](https://github.com/aiyu-ayaan/LoadPulse/commit/7a27c8ed05c5942873b0df38901c14d171bd16d0))
+* **release:** add configuration file for release-please action ([309ed8b](https://github.com/aiyu-ayaan/LoadPulse/commit/309ed8becf774eab7e78f0926ce3317183f7ad45))
+* **reports:** enhance PDF export with AI summary and improved styling ([305f6ca](https://github.com/aiyu-ayaan/LoadPulse/commit/305f6caff8e5b15d55e2c16abcd2db6518417ac7))
+* **server-ai:** add fallback AI runtime for test summaries and AI test config generation ([6b2ca98](https://github.com/aiyu-ayaan/LoadPulse/commit/6b2ca98e56aa42a4a981f4c49fc475649e1094a1))
+* **server:** add secure admin AI integrations and model-priority APIs ([d51ebe0](https://github.com/aiyu-ayaan/LoadPulse/commit/d51ebe0688fa411184a63ba4a97679d05a3fbf60))
+* **test-ui:** integrate AI into new-test, details, reports, and history flows ([c6c7abc](https://github.com/aiyu-ayaan/LoadPulse/commit/c6c7abca289f9545dfaee43ba8237601a2a7dc5c))
+* **tests:** add username tracking to test runs and update related components ([38494e6](https://github.com/aiyu-ayaan/LoadPulse/commit/38494e6c38fc7bf61c7fb84fea0c374b05a4f6a9))
+* **ui:** implement RichTextView component for rendering AI summaries in Markdown format ([06d5614](https://github.com/aiyu-ayaan/LoadPulse/commit/06d5614ccad439511928b9480c3ad23602633273))
+
+
+### Bug Fixes
+
+* **admin:** remove duplicate entry for Accounts in adminLinks ([5404964](https://github.com/aiyu-ayaan/LoadPulse/commit/54049649fea58a4d20527b6c856a17134d8fc721))
+* **ai-summary:** persist generated summary in polling and render markdown/html safely ([f4307bc](https://github.com/aiyu-ayaan/LoadPulse/commit/f4307bc041fa1512d5405d7bdb15691d2ec3a724))
+* **ui:** clean up JSX formatting for error and success messages in Admin pages ([92fd3a0](https://github.com/aiyu-ayaan/LoadPulse/commit/92fd3a06d4326b78fdd15d58d58bcd81596d0b05))
+* **ui:** update button className formatting for better readability ([bad180b](https://github.com/aiyu-ayaan/LoadPulse/commit/bad180be6f703739bc9a06ea6d7671f349d902ac))
+
 ## [1.0.1](https://github.com/aiyu-ayaan/LoadPulse/compare/v1.0.0...v1.0.1) (2026-04-03)
 
 
