@@ -22,8 +22,9 @@ RUN npm ci --omit=dev
 COPY --from=k6 /usr/bin/k6 /usr/bin/k6
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/server ./server
+COPY --from=builder /app/ecosystem.config.cjs ./ecosystem.config.cjs
 COPY --from=builder /app/.env.example ./.env.example
 
 EXPOSE ${BACKEND_PORT}
 
-CMD ["npm", "run", "start"]
+CMD ["npm", "run", "start:cluster"]

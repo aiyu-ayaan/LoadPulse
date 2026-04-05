@@ -72,6 +72,9 @@ const githubClientId = process.env.GITHUB_CLIENT_ID?.trim() || "";
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim() || "";
 const githubCallbackUrl = process.env.GITHUB_CALLBACK_URL?.trim() || "";
 const githubEnabled = Boolean(githubClientId && githubClientSecret && githubCallbackUrl);
+const pm2InstanceId = String(process.env.NODE_APP_INSTANCE ?? "0");
+const isPm2Cluster = process.env.NODE_APP_INSTANCE !== undefined;
+const shouldRunIntegrationScheduler = !isPm2Cluster || pm2InstanceId === "0";
 const packageJsonPath = path.resolve(process.cwd(), "package.json");
 
 let packageMetadata = {
@@ -2497,12 +2500,20 @@ await mongoose.connect(mongoUri, mongoConnectOptions);
 await initCache();
 await ensureLegacyOwnerAndAdmin();
 await markOrphanedRuns();
-await initIntegrationScheduler({
-  integrations: await Integration.find({ isEnabled: true, triggerType: "cron" }).lean(),
-  onTrigger: async (integrationId, meta) => {
-    await triggerIntegrationRun(integrationId, meta);
-  },
-});
+if (shouldRunIntegrationScheduler) {
+  await initIntegrationScheduler({
+    integrations: await Integration.find({ isEnabled: true, triggerType: "cron" }).lean(),
+    onTrigger: async (integrationId, meta) => {
+      await triggerIntegrationRun(integrationId, meta);
+    },
+  });
+
+  if (isPm2Cluster) {
+    console.log(`[scheduler] Integration scheduler started on PM2 instance ${pm2InstanceId}.`);
+  }
+} else {
+  console.log(`[scheduler] Integration scheduler skipped on PM2 instance ${pm2InstanceId}.`);
+}
 
 const app = express();
 const server = http.createServer(app);

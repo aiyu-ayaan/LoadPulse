@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "start:cluster": "pm2-runtime start ecosystem.config.cjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.2",
@@ -26,12 +27,15 @@
     "marked": "^17.0.6",
     "mongoose": "^8.19.3",
     "node-cron": "^4.2.1",
+    "pm2": "^5.4.3",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.2",
     "recharts": "^3.8.1",
     "redis": "^5.11.0",
+    "remark-gfm": "^4.0.1",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "speakeasy": "^2.0.0"

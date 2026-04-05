@@ -31,6 +31,7 @@ services:
     environment:
       BACKEND_PORT: ${BACKEND_PORT:-4000}
       PORT: ${BACKEND_PORT:-4000}
+      PM2_INSTANCES: ${PM2_INSTANCES:-max}
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB: ${MONGODB_DB:-loadpulse}
       REDIS_URL: ${DOCKER_REDIS_URL:-redis://redis:6379}
