@@ -38,15 +38,19 @@ You may still encounter evolving flows, incomplete edges, or occasional bugs.
 ## Screenshots
 
 ### Login
+
 ![LoadPulse Login](./pictures/Login.png)
 
 ### New Test
+
 ![LoadPulse New Test](./pictures/New%20Test.png)
 
 ### Test History
+
 ![LoadPulse Test History](./pictures/History.png)
 
 ### Reports
+
 ![LoadPulse Reports](./pictures/Report.png)
 
 ## Product Areas
@@ -153,6 +157,11 @@ MONGODB_URI=mongodb://localhost:27017
 MONGODB_DB=loadpulse
 MONGO_PORT=27018
 
+# Optional MongoDB TLS settings (recommended for production/cloud MongoDB)
+MONGODB_TLS=false
+MONGODB_TLS_CA_FILE=
+MONGODB_TLS_ALLOW_INVALID_CERTS=false
+
 # Optional Redis cache (set REDIS_URL to enable caching)
 REDIS_URL=
 DOCKER_REDIS_URL=redis://redis:6379
@@ -160,6 +169,11 @@ REDIS_DEFAULT_TTL_SECONDS=30
 
 # Optional: if empty, server generates a temporary secret on startup
 AUTH_JWT_SECRET=
+
+# Field-level encryption key for sensitive DB fields (required in production)
+DATA_ENCRYPTION_KEY=
+# Optional key rotation support: comma-separated previous keys
+DATA_ENCRYPTION_LEGACY_KEYS=
 
 # Optional GitHub OAuth login
 GITHUB_CLIENT_ID=
@@ -179,6 +193,9 @@ MAX_PERCENTILE_SAMPLES=5000
 - `REDIS_URL`: Redis for local/non-Docker runtime
 - `DOCKER_REDIS_URL`: Redis URL used by Docker Compose networking (`redis://redis:6379`)
 - `REDIS_DEFAULT_TTL_SECONDS`: default cache TTL
+- `DATA_ENCRYPTION_KEY`: encrypts sensitive values before persisting to MongoDB (API keys, 2FA secrets, stored scripts)
+- `DATA_ENCRYPTION_LEGACY_KEYS`: optional comma-separated prior keys for seamless key rotation
+- `MONGODB_TLS`: set to `true` to enforce TLS for MongoDB connections
 - If GitHub OAuth env vars are missing, local sign-in/sign-up remains available
 
 ## Local Development
@@ -349,6 +366,9 @@ Typical response:
 ## Production Notes
 
 - Set a strong `AUTH_JWT_SECRET`
+- Set a strong `DATA_ENCRYPTION_KEY` (32+ random characters) and store it in a secret manager
+- Enable MongoDB storage encryption at the database layer (MongoDB Atlas encryption at rest or encrypted storage engine)
+- Enable TLS to MongoDB (`MONGODB_TLS=true`) unless your environment already enforces it in the URI/network
 - Configure GitHub OAuth only if you need it
 - Ensure MongoDB and Redis are reachable from app runtime
 - Ensure `k6` is available in runtime if not using the provided Docker image

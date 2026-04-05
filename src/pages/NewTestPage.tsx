@@ -73,7 +73,7 @@ export const NewTestPage = () => {
   const [insecureSkipTLSVerify, setInsecureSkipTLSVerify] = useState(false);
   const [thresholds, setThresholds] = useState<Array<{ metric: string; condition: string }>>([]);
   const [type, setType] = useState("Load");
-  const [region] = useState("us-east-1");
+  const [region, setRegion] = useState("us-east-1");
   const [script, setScript] = useState(
     buildTemplateScript(selectedProject?.baseUrl ?? "https://", "basic", 20, "30s", [], false, [])
   );
@@ -294,6 +294,29 @@ export const NewTestPage = () => {
                     </select>
                     <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Execution Region</label>
+                <div className="relative">
+                  <Globe className="absolute left-3 top-3 h-4 w-4 text-slate-500" />
+                  <select
+                    value={region}
+                    onChange={(event) => setRegion(event.target.value)}
+                    className="w-full appearance-none rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 pl-10 pr-10 text-sm text-slate-300 transition hover:bg-white/[0.04] focus:bg-black/50 focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+                  >
+                    <option className="bg-slate-900" value="us-east-1">US East (N. Virginia)</option>
+                    <option className="bg-slate-900" value="us-west-1">US West (N. California)</option>
+                    <option className="bg-slate-900" value="us-central-1">US Central (Dallas)</option>
+                    <option className="bg-slate-900" value="eu-west-1">EU West (Ireland)</option>
+                    <option className="bg-slate-900" value="eu-central-1">EU Central (Frankfurt)</option>
+                    <option className="bg-slate-900" value="ap-southeast-1">Asia Pacific (Singapore)</option>
+                    <option className="bg-slate-900" value="ap-northeast-1">Asia Pacific (Tokyo)</option>
+                    <option className="bg-slate-900" value="ap-south-1">Asia Pacific (Mumbai)</option>
+                    <option className="bg-slate-900" value="sa-east-1">South America (São Paulo)</option>
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-3 h-4 w-4 text-slate-500" />
                 </div>
               </div>
             </div>

@@ -57,8 +57,17 @@ const port = Number(process.env.BACKEND_PORT ?? process.env.PORT ?? 4000);
 const frontendPort = Number(process.env.FRONTEND_PORT ?? 5173);
 const mongoUri = process.env.MONGODB_URI;
 const databaseName = process.env.MONGODB_DB ?? "loadpulse";
+const mongoTlsEnabled = String(process.env.MONGODB_TLS ?? "").trim().toLowerCase() === "true";
+const mongoTlsCaFile = process.env.MONGODB_TLS_CA_FILE?.trim() || "";
+const mongoTlsAllowInvalidCerts =
+  String(process.env.MONGODB_TLS_ALLOW_INVALID_CERTS ?? "").trim().toLowerCase() === "true";
 const clientOrigin = process.env.CLIENT_ORIGIN?.trim() || `http://localhost:${frontendPort}`;
 const jwtSecret = process.env.AUTH_JWT_SECRET?.trim() || randomBytes(48).toString("hex");
+const dataEncryptionKey = process.env.DATA_ENCRYPTION_KEY?.trim() || "";
+const dataEncryptionLegacyKeys = String(process.env.DATA_ENCRYPTION_LEGACY_KEYS ?? "")
+  .split(",")
+  .map((entry) => entry.trim())
+  .filter(Boolean);
 const githubClientId = process.env.GITHUB_CLIENT_ID?.trim() || "";
 const githubClientSecret = process.env.GITHUB_CLIENT_SECRET?.trim() || "";
 const githubCallbackUrl = process.env.GITHUB_CALLBACK_URL?.trim() || "";
@@ -84,6 +93,12 @@ if (!mongoUri) {
 }
 if (!process.env.AUTH_JWT_SECRET?.trim()) {
   console.warn("[auth] AUTH_JWT_SECRET was not provided. Generated a temporary secret for this runtime.");
+}
+if (process.env.NODE_ENV === "production" && !dataEncryptionKey) {
+  throw new Error("DATA_ENCRYPTION_KEY is required in production to protect encrypted database fields.");
+}
+if (!dataEncryptionKey) {
+  console.warn("[security] DATA_ENCRYPTION_KEY is not set. Falling back to AUTH_JWT_SECRET for field encryption.");
 }
 
 const parseCorsOrigins = (originValue) => {
@@ -112,6 +127,49 @@ const resolvePrimaryClientOrigin = (originValue) => {
 
 const toObjectIdString = (value) => String(value ?? "");
 const isValidObjectId = (value) => mongoose.Types.ObjectId.isValid(value);
+const dataEncryptionSeed = dataEncryptionKey || jwtSecret;
+const dataDecryptionSeeds = [...new Set([dataEncryptionSeed, ...dataEncryptionLegacyKeys, jwtSecret].filter(Boolean))];
+const isHexSegment = (value, expectedLength = null) => {
+  if (!value || !/^[0-9a-f]+$/i.test(value)) {
+    return false;
+  }
+  if (expectedLength !== null && value.length !== expectedLength) {
+    return false;
+  }
+  return value.length % 2 === 0;
+};
+const isEncryptedSecretPayload = (value) => {
+  const [ivHex, tagHex, encryptedHex, extra] = String(value ?? "").split(":");
+  if (extra !== undefined) {
+    return false;
+  }
+  return isHexSegment(ivHex, 24) && isHexSegment(tagHex, 32) && isHexSegment(encryptedHex);
+};
+const encryptAtRestField = (value) => {
+  const raw = String(value ?? "");
+  if (!raw) {
+    return "";
+  }
+  return encryptSecret(raw, dataEncryptionSeed);
+};
+const decryptAtRestField = (value) => {
+  const raw = String(value ?? "");
+  if (!raw) {
+    return "";
+  }
+  if (!isEncryptedSecretPayload(raw)) {
+    return raw;
+  }
+
+  for (const seed of dataDecryptionSeeds) {
+    try {
+      return decryptSecret(raw, seed);
+    } catch {
+      // Try next configured key for graceful rotation support.
+    }
+  }
+  return "";
+};
 const clientAppOrigin = resolvePrimaryClientOrigin(clientOrigin);
 const AUTH_COOKIE_NAME = "loadpulse_auth";
 const authCookieSecure = clientAppOrigin.startsWith("https://");
@@ -568,7 +626,7 @@ const toIntegrationResponse = (integration) => ({
   region: integration?.region ?? "us-east-1",
   vus: Number(integration?.vus ?? 1),
   duration: integration?.duration ?? "30s",
-  script: integration?.script ?? "",
+  script: decryptAtRestField(integration?.script),
   triggerType: integration?.triggerType ?? "cron",
   cronExpression: integration?.cronExpression ?? "",
   timezone: integration?.timezone ?? "UTC",
@@ -677,7 +735,7 @@ const fetchJsonWithTimeout = async (url, init = {}, timeoutMs = 9000) => {
 const listProviderModelsFromRemote = async (integrationDoc) => {
   const provider = normalizeAiProvider(integrationDoc?.provider);
   const baseUrl = resolveAiIntegrationBaseUrl(provider, integrationDoc?.baseUrl);
-  const apiKey = decryptSecret(integrationDoc?.apiKeyEncrypted, jwtSecret);
+  const apiKey = decryptAtRestField(integrationDoc?.apiKeyEncrypted);
 
   if (PROVIDERS_REQUIRING_API_KEY.has(provider) && !apiKey) {
     throw new Error(`An API key is required for ${provider} integrations.`);
@@ -1296,7 +1354,7 @@ const runSingleAiModelCompletion = async (entry, payload) => {
     throw new Error("Integration base URL is invalid.");
   }
 
-  const apiKey = decryptSecret(integration?.apiKeyEncrypted, jwtSecret);
+  const apiKey = decryptAtRestField(integration?.apiKeyEncrypted);
   if (PROVIDERS_REQUIRING_API_KEY.has(provider) && !apiKey) {
     throw new Error(`API key is missing for ${provider}.`);
   }
@@ -2000,6 +2058,7 @@ const ensureProjectRunAccess = async (projectId, authUser) => {
 };
 
 const createTestRunFromTemplate = async (template, userId = null, username = "") => {
+  const resolvedScript = String(template.script ?? "");
   const testRun = await TestRun.create({
     projectId: template.projectId,
     projectName: template.projectName,
@@ -2010,14 +2069,19 @@ const createTestRunFromTemplate = async (template, userId = null, username = "")
     region: template.region,
     duration: template.duration,
     vus: template.vus,
-    script: template.script,
+    script: encryptAtRestField(resolvedScript),
     userId,
     username,
   });
 
   await invalidateApiCache();
 
-  void startK6Run(testRun).catch(async (runnerError) => {
+  void startK6Run({
+    _id: testRun._id,
+    name: testRun.name,
+    projectId: testRun.projectId,
+    script: resolvedScript,
+  }).catch(async (runnerError) => {
     await TestRun.updateOne(
       { _id: testRun._id },
       {
@@ -2062,7 +2126,7 @@ const triggerIntegrationRun = async (integrationId, triggerMeta = {}) => {
       region: integration.region,
       duration: integration.duration,
       vus: integration.vus,
-      script: integration.script,
+      script: decryptAtRestField(integration.script),
     });
 
     integration.lastTriggeredAt = new Date();
@@ -2416,7 +2480,20 @@ const getProjectStatsMap = async (projectIds = null) => {
   return statsMap;
 };
 
-await mongoose.connect(mongoUri, { dbName: databaseName });
+const mongoConnectOptions = {
+  dbName: databaseName,
+};
+if (mongoTlsEnabled) {
+  mongoConnectOptions.tls = true;
+  if (mongoTlsCaFile) {
+    mongoConnectOptions.tlsCAFile = mongoTlsCaFile;
+  }
+  if (mongoTlsAllowInvalidCerts) {
+    mongoConnectOptions.tlsAllowInvalidCertificates = true;
+  }
+}
+
+await mongoose.connect(mongoUri, mongoConnectOptions);
 await initCache();
 await ensureLegacyOwnerAndAdmin();
 await markOrphanedRuns();
@@ -2883,7 +2960,7 @@ app.post("/api/auth/verify-2fa", async (req, res) => {
     return res.status(403).json({ error: "This account is deactivated. Contact your administrator." });
   }
 
-  const secret = decryptSecret(user.twoFactorSecretEncrypted, jwtSecret);
+  const secret = decryptAtRestField(user.twoFactorSecretEncrypted);
   const isValidCode = verifyTwoFactorCode(secret, code);
   if (!isValidCode) {
     return res.status(401).json({ error: "Invalid verification code." });
@@ -3221,7 +3298,7 @@ app.post("/api/admin/ai/integrations", requireAdmin, async (req, res) => {
   const integration = await AIIntegration.create({
     name: value.name,
     provider: value.provider,
-    apiKeyEncrypted: value.apiKey ? encryptSecret(value.apiKey, jwtSecret) : "",
+    apiKeyEncrypted: value.apiKey ? encryptAtRestField(value.apiKey) : "",
     apiKeyPreview: value.apiKey ? toSecretPreview(value.apiKey) : "",
     baseUrl: value.baseUrl,
     isEnabled: value.isEnabled,
@@ -3284,7 +3361,7 @@ app.patch("/api/admin/ai/integrations/:id", requireAdmin, async (req, res) => {
     integration.isEnabled = Boolean(req.body?.isEnabled);
   }
   if (hasApiKey) {
-    integration.apiKeyEncrypted = nextApiKeyRaw ? encryptSecret(nextApiKeyRaw, jwtSecret) : "";
+    integration.apiKeyEncrypted = nextApiKeyRaw ? encryptAtRestField(nextApiKeyRaw) : "";
     integration.apiKeyPreview = nextApiKeyRaw ? toSecretPreview(nextApiKeyRaw) : "";
   }
   await integration.save();
@@ -3749,7 +3826,7 @@ app.post("/api/auth/2fa/setup", async (req, res) => {
   }
 
   const secret = generateTwoFactorSecret(user.username);
-  user.pendingTwoFactorSecretEncrypted = encryptSecret(secret.base32, jwtSecret);
+  user.pendingTwoFactorSecretEncrypted = encryptAtRestField(secret.base32);
   await user.save();
 
   return res.json({
@@ -3769,7 +3846,7 @@ app.post("/api/auth/2fa/enable", async (req, res) => {
     return res.status(400).json({ error: "Start 2-step setup first." });
   }
 
-  const pendingSecret = decryptSecret(user.pendingTwoFactorSecretEncrypted, jwtSecret);
+  const pendingSecret = decryptAtRestField(user.pendingTwoFactorSecretEncrypted);
   const isValidCode = verifyTwoFactorCode(pendingSecret, code);
   if (!isValidCode) {
     return res.status(401).json({ error: "Invalid verification code." });
@@ -3797,7 +3874,7 @@ app.post("/api/auth/2fa/disable", async (req, res) => {
     return res.status(400).json({ error: "2-step authentication is not enabled." });
   }
 
-  const activeSecret = decryptSecret(user.twoFactorSecretEncrypted, jwtSecret);
+  const activeSecret = decryptAtRestField(user.twoFactorSecretEncrypted);
   const isValidCode = verifyTwoFactorCode(activeSecret, code);
   if (!isValidCode) {
     return res.status(401).json({ error: "Invalid verification code." });
@@ -4106,7 +4183,7 @@ app.post("/api/projects/:id/integrations", async (req, res) => {
     region: value.region,
     vus: value.vus,
     duration: value.duration,
-    script: value.script,
+    script: encryptAtRestField(value.script),
     triggerType: value.triggerType,
     cronExpression: value.cronExpression,
     timezone: value.timezone,
@@ -4151,7 +4228,7 @@ app.patch("/api/projects/:projectId/integrations/:integrationId", async (req, re
   existing.region = value.region;
   existing.vus = value.vus;
   existing.duration = value.duration;
-  existing.script = value.script;
+  existing.script = encryptAtRestField(value.script);
   existing.triggerType = value.triggerType;
   existing.cronExpression = value.cronExpression;
   existing.timezone = value.timezone;
@@ -4747,7 +4824,7 @@ app.get("/api/tests/:id", async (req, res) => {
       finalMetrics: run.finalMetrics ?? null,
       liveMetrics: run.liveMetrics ?? null,
       errorMessage: run.errorMessage ?? null,
-      script: run.script,
+      script: decryptAtRestField(run.script),
       aiSummary: run.aiSummary ?? null,
     },
   };
