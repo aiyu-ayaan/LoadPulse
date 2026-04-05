@@ -67,11 +67,6 @@ const ProjectMemberRow = ({ member, busy, onSave, onRemove }: MemberRowProps) =>
   const [canView, setCanView] = useState(member.canView);
   const [canRun, setCanRun] = useState(member.canRun);
 
-  useEffect(() => {
-    setCanView(member.canView);
-    setCanRun(member.canRun);
-  }, [member.canView, member.canRun, member.email, member.key]);
-
   const hasChanges = canView !== member.canView || canRun !== member.canRun;
   const isInvalidSelection = !canView && !canRun;
 

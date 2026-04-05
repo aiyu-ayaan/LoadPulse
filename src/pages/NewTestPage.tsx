@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import { Play, Code2, Settings2, Globe, Clock, Users, ChevronDown, FolderKanban, Trash2, Plus, Sliders, Rocket, Activity, CheckCircle, ShieldAlert, FileText, LockKeyholeOpen } from "lucide-react";
+import { Play, Globe, Clock, Users, ChevronDown, FolderKanban, Trash2, Plus, Sliders, Rocket, Activity, CheckCircle, ShieldAlert, FileText, LockKeyholeOpen, Brain, RefreshCcw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { runTest } from "../lib/api";
+import { generateAiTestConfig, runTest } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { EmptyState } from "../components/EmptyState";
-import { HelperNote } from "../components/HelperNote";
 import { useNotifications } from "../context/useNotifications";
 import { ScriptEditor } from "../components/ScriptEditor";
 import { buildProjectTestPath } from "../lib/project-routes";
@@ -76,6 +75,9 @@ export const NewTestPage = () => {
   const [script, setScript] = useState(
     buildTemplateScript(selectedProject?.baseUrl ?? "https://", "basic", 20, "30s", [], false, [])
   );
+  const [aiGoal, setAiGoal] = useState("Generate a safe baseline load test for homepage response time under moderate traffic.");
+  const [aiNotes, setAiNotes] = useState("");
+  const [isGeneratingWithAi, setIsGeneratingWithAi] = useState(false);
   const [isScriptDirty, setIsScriptDirty] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +109,50 @@ export const NewTestPage = () => {
       }
     }
   }, [type, vus, duration, mode, isNameDirty]);
+
+  const handleGenerateWithAi = async () => {
+    if (!selectedProject) {
+      setError("Please select a project first.");
+      return;
+    }
+    if (!canRunCurrentProject) {
+      setError("Your account can view this project but cannot run tests for it.");
+      return;
+    }
+    if (!aiGoal.trim() || aiGoal.trim().length < 6) {
+      setError("Describe your test goal in at least 6 characters.");
+      return;
+    }
+
+    setIsGeneratingWithAi(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await generateAiTestConfig(selectedProject.id, {
+        goal: aiGoal,
+        targetUrl,
+        type,
+      });
+
+      const generated = response.data;
+      setName(generated.name);
+      setIsNameDirty(true);
+      setTargetUrl(generated.targetUrl || targetUrl);
+      setType(generated.type || type);
+      setMode("basic");
+      setVus(generated.vus || 20);
+      setDuration(generated.duration || "30s");
+      setScript(generated.script || script);
+      setIsScriptDirty(true);
+      setAiNotes(generated.notes || "");
+      setSuccessMessage(`AI generated test config using ${generated.ai.modelName}. Review and launch when ready.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to generate test config with AI.");
+    } finally {
+      setIsGeneratingWithAi(false);
+    }
+  };
 
   const handleRunTest = async () => {
     if (!selectedProject) {
@@ -246,6 +292,35 @@ export const NewTestPage = () => {
                  </div>
                </div>
              </div>
+          </div>
+
+          <div className="premium-card p-6 space-y-4">
+            <div className="mb-2 flex items-center gap-2 border-b border-white/10 pb-4">
+              <Brain className="h-5 w-5 text-primary" />
+              <h3 className="font-bold text-slate-100">AI Test Planner</h3>
+            </div>
+
+            <label className="space-y-2">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Goal</span>
+              <textarea
+                value={aiGoal}
+                onChange={(event) => setAiGoal(event.target.value)}
+                placeholder="Example: simulate checkout load with moderate traffic and strict latency"
+                className="h-24 w-full resize-none rounded-xl border border-white/10 bg-black/30 px-4 py-2.5 text-sm text-slate-100 outline-none transition-all placeholder:text-slate-600 focus:bg-black/50 focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+              />
+            </label>
+
+            <button
+              type="button"
+              disabled={isGeneratingWithAi || !canRunCurrentProject}
+              onClick={() => void handleGenerateWithAi()}
+              className="inline-flex items-center gap-2 rounded-xl border border-primary/40 bg-primary/15 px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <RefreshCcw className={`h-4 w-4 ${isGeneratingWithAi ? "animate-spin" : ""}`} />
+              {isGeneratingWithAi ? "Generating with AI..." : "Generate Config With AI"}
+            </button>
+
+            {aiNotes && <p className="text-xs text-slate-400">AI notes: {aiNotes}</p>}
           </div>
 
           {/* Card 2: Load Profile Builder */}

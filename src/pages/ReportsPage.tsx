@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
   Activity,
+  Brain,
   ChevronRight,
   Cpu,
   Download,
@@ -9,6 +10,7 @@ import {
   FileText,
   Network,
   Radar,
+  RefreshCcw,
   Share2,
   TrendingDown,
 } from "lucide-react";
@@ -21,8 +23,11 @@ import { useProjects } from "../context/useProjects";
 import {
   fetchTestHistory,
   fetchTestRun,
+  fetchTestRunAiSummary,
   getAuthToken,
+  regenerateTestRunAiSummary,
   socketUrl,
+  type TestRunAiSummary,
   type TestHistoryItem,
   type TestRunDetail,
 } from "../lib/api";
@@ -193,6 +198,9 @@ export const ReportsPage = () => {
   const [runs, setRuns] = useState<TestRunDetail[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
   const [runningCount, setRunningCount] = useState(0);
+  const [aiSummariesByRunId, setAiSummariesByRunId] = useState<Record<string, TestRunAiSummary>>({});
+  const [aiSummaryError, setAiSummaryError] = useState<string | null>(null);
+  const [aiLoadingRunId, setAiLoadingRunId] = useState<string | null>(null);
   const pollingRef = useRef<number | null>(null);
 
   const loadReport = useCallback(async () => {
@@ -222,6 +230,15 @@ export const ReportsPage = () => {
 
       setHistory(topRuns);
       setRuns(runDetails);
+      setAiSummariesByRunId((previous) => {
+        const next = { ...previous };
+        for (const run of runDetails) {
+          if (run.aiSummary?.text) {
+            next[run.id] = run.aiSummary;
+          }
+        }
+        return next;
+      });
       setRunningCount(activeRuns);
       setSelectedRunId((current) => current && runDetails.some((run) => run.id === current) ? current : runDetails[0]?.id ?? null);
       setError(null);
@@ -318,6 +335,52 @@ export const ReportsPage = () => {
 
   const anomalies = useMemo(() => buildAnomalies(selectedRun, runningCount), [selectedRun, runningCount]);
   const status = useMemo(() => runStatusLabel(selectedRun), [selectedRun]);
+  const selectedRunAiSummary = selectedRun ? aiSummariesByRunId[selectedRun.id] ?? null : null;
+  const canGenerateAiSummary = selectedRun ? ["success", "failed", "stopped"].includes(selectedRun.status) : false;
+
+  useEffect(() => {
+    if (!selectedRun || !canGenerateAiSummary || selectedRunAiSummary || aiLoadingRunId === selectedRun.id) {
+      return;
+    }
+
+    const loadSummary = async () => {
+      setAiLoadingRunId(selectedRun.id);
+      setAiSummaryError(null);
+      try {
+        const response = await fetchTestRunAiSummary(selectedRun.id);
+        setAiSummariesByRunId((previous) => ({
+          ...previous,
+          [selectedRun.id]: response.data,
+        }));
+      } catch (requestError) {
+        setAiSummaryError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
+      } finally {
+        setAiLoadingRunId((current) => (current === selectedRun.id ? null : current));
+      }
+    };
+
+    void loadSummary();
+  }, [aiLoadingRunId, canGenerateAiSummary, selectedRun, selectedRunAiSummary]);
+
+  const regenerateSelectedRunSummary = async () => {
+    if (!selectedRun || !canGenerateAiSummary) {
+      return;
+    }
+
+    setAiLoadingRunId(selectedRun.id);
+    setAiSummaryError(null);
+    try {
+      const response = await regenerateTestRunAiSummary(selectedRun.id);
+      setAiSummariesByRunId((previous) => ({
+        ...previous,
+        [selectedRun.id]: response.data,
+      }));
+    } catch (requestError) {
+      setAiSummaryError(requestError instanceof Error ? requestError.message : "Unable to regenerate AI summary.");
+    } finally {
+      setAiLoadingRunId((current) => (current === selectedRun.id ? null : current));
+    }
+  };
 
   const shareReport = async () => {
     if (!selectedProject || !selectedRun) {
@@ -477,6 +540,42 @@ export const ReportsPage = () => {
         This report mostly describes the selected run. The big chart compares that run with recent runs. p50 means a typical visitor wait,
         p95 means slower visitors near the end, and p99 shows the very slowest edge cases. Lower times are better.
       </HelperNote>
+
+      <section className="rounded-2xl border border-white/10 bg-[#171819] p-5">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="inline-flex items-center gap-2 text-base font-semibold text-white">
+            <Brain className="h-4 w-4 text-primary" /> AI Executive Summary
+          </h2>
+          {canGenerateAiSummary && (
+            <button
+              type="button"
+              onClick={() => void regenerateSelectedRunSummary()}
+              disabled={aiLoadingRunId === selectedRun.id}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+            >
+              <RefreshCcw className="h-3.5 w-3.5" />
+              {aiLoadingRunId === selectedRun.id ? "Generating..." : "Regenerate"}
+            </button>
+          )}
+        </div>
+
+        {!canGenerateAiSummary ? (
+          <p className="text-sm text-slate-400">Summary becomes available when the selected run is completed.</p>
+        ) : aiSummaryError ? (
+          <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{aiSummaryError}</p>
+        ) : selectedRunAiSummary?.text ? (
+          <div className="space-y-2">
+            <p className="text-xs text-slate-500">
+              Model: {selectedRunAiSummary.modelName} ({selectedRunAiSummary.provider}) • {selectedRunAiSummary.integrationName}
+            </p>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">{selectedRunAiSummary.text}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-slate-400">
+            {aiLoadingRunId === selectedRun.id ? "Generating executive summary..." : "No AI summary yet."}
+          </p>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <div className="space-y-6 lg:col-span-3">

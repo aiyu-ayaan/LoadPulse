@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, AlertCircle, Activity, Zap, Clock, ShieldAlert, Square } from "lucide-react";
+import { ArrowLeft, AlertCircle, Activity, Zap, Clock, ShieldAlert, Square, Brain, RefreshCcw } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 import { KpiCard } from "../components/KpiCard";
-import { fetchTestRun, stopTestRun, type TestRunDetail } from "../lib/api";
+import { fetchTestRun, fetchTestRunAiSummary, regenerateTestRunAiSummary, stopTestRun, type TestRunDetail } from "../lib/api";
 
 const toStatusData = (detail: TestRunDetail | null) => {
   const counts = detail?.finalMetrics?.statusCodes ?? detail?.liveMetrics?.statusCodes;
@@ -31,6 +31,11 @@ export const TestDetailsPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isStopping, setIsStopping] = useState(false);
+  const [aiSummary, setAiSummary] = useState<TestRunDetail["aiSummary"]>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isAiRegenerating, setIsAiRegenerating] = useState(false);
+  const autoAiRequestedByRunIdRef = useRef<Set<string>>(new Set());
 
   const loadDetail = useCallback(async () => {
     if (!testId) {
@@ -39,7 +44,37 @@ export const TestDetailsPage = () => {
 
     const response = await fetchTestRun(testId);
     setDetail(response.data);
+    setAiSummary(response.data.aiSummary ?? null);
   }, [testId]);
+
+  const loadAiSummary = useCallback(
+    async (force = false) => {
+      if (!testId) {
+        return;
+      }
+
+      if (force) {
+        setIsAiRegenerating(true);
+      } else {
+        setIsAiLoading(true);
+      }
+      setAiError(null);
+
+      try {
+        const response = force
+          ? await regenerateTestRunAiSummary(testId)
+          : await fetchTestRunAiSummary(testId);
+        setAiSummary(response.data);
+        await loadDetail();
+      } catch (requestError) {
+        setAiError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
+      } finally {
+        setIsAiLoading(false);
+        setIsAiRegenerating(false);
+      }
+    },
+    [loadDetail, testId],
+  );
 
   useEffect(() => {
     if (!testId) {
@@ -93,6 +128,18 @@ export const TestDetailsPage = () => {
 
   const statusData = toStatusData(detail);
   const canStop = detail ? detail.status === "running" || detail.status === "queued" : false;
+  const canGenerateAiSummary = detail ? ["success", "failed", "stopped"].includes(detail.status) : false;
+
+  useEffect(() => {
+    if (!detail || !canGenerateAiSummary || aiSummary || isAiLoading) {
+      return;
+    }
+    if (autoAiRequestedByRunIdRef.current.has(detail.id)) {
+      return;
+    }
+    autoAiRequestedByRunIdRef.current.add(detail.id);
+    void loadAiSummary(false);
+  }, [aiSummary, canGenerateAiSummary, detail, isAiLoading, loadAiSummary]);
 
   const handleStop = async () => {
     if (!detail || isStopping || !canStop) {
@@ -158,6 +205,42 @@ export const TestDetailsPage = () => {
               {detail.status.toUpperCase()} • {detail.vus} virtual users • {detail.duration} • {detail.targetUrl}
             </p>
           </div>
+
+          <section className="rounded-2xl border border-white/10 bg-[#171819] p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="inline-flex items-center gap-2 text-base font-semibold text-white">
+                <Brain className="h-4 w-4 text-primary" /> AI Test Summary
+              </h2>
+              {canGenerateAiSummary && (
+                <button
+                  type="button"
+                  onClick={() => void loadAiSummary(Boolean(aiSummary))}
+                  disabled={isAiLoading || isAiRegenerating}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+                >
+                  <RefreshCcw className="h-3.5 w-3.5" />
+                  {isAiLoading || isAiRegenerating ? "Generating..." : aiSummary ? "Regenerate" : "Generate"}
+                </button>
+              )}
+            </div>
+
+            {!canGenerateAiSummary ? (
+              <p className="text-sm text-slate-400">Summary will be available after this run finishes.</p>
+            ) : aiError ? (
+              <p className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{aiError}</p>
+            ) : aiSummary?.text ? (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500">
+                  Generated via {aiSummary.modelName} ({aiSummary.provider}) • {aiSummary.integrationName}
+                </p>
+                <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">{aiSummary.text}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-slate-400">
+                {isAiLoading ? "Generating summary..." : "No summary generated yet."}
+              </p>
+            )}
+          </section>
 
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-6">
             <KpiCard title="Total Requests" value={kpi.totalRequests} trendUp={true} icon={Zap} subtitle="Requests served" />

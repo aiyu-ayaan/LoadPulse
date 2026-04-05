@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Search, ExternalLink, Trash2, Play, AlertCircle, CheckCircle2, Clock, History, FolderKanban, Square } from "lucide-react";
+import { Search, ExternalLink, Trash2, Play, AlertCircle, CheckCircle2, Clock, History, FolderKanban, Square, Brain } from "lucide-react";
 import { motion } from "framer-motion";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
-import { clearHistory, deleteTestRun, fetchTestHistory, stopTestRun, type TestHistoryItem } from "../lib/api";
+import { clearHistory, deleteTestRun, fetchTestHistory, fetchTestRunAiSummary, stopTestRun, type TestHistoryItem } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
 
@@ -36,6 +36,7 @@ export const TestHistoryPage = () => {
   const [query, setQuery] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [stoppingRunIds, setStoppingRunIds] = useState<Set<string>>(new Set());
+  const [aiGeneratingRunIds, setAiGeneratingRunIds] = useState<Set<string>>(new Set());
 
   const loadHistory = useCallback(
     async (showLoading = false) => {
@@ -145,6 +146,24 @@ export const TestHistoryPage = () => {
     }
   };
 
+  const handleGenerateSummary = async (id: string) => {
+    setAiGeneratingRunIds((previous) => new Set(previous).add(id));
+    try {
+      await fetchTestRunAiSummary(id);
+      setData((previous) =>
+        previous.map((item) => (item.id === id ? { ...item, hasAiSummary: true } : item)),
+      );
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
+    } finally {
+      setAiGeneratingRunIds((previous) => {
+        const next = new Set(previous);
+        next.delete(id);
+        return next;
+      });
+    }
+  };
+
   if (!selectedProject) {
     return (
       <EmptyState
@@ -239,6 +258,11 @@ export const TestHistoryPage = () => {
                         <span className="text-xs text-slate-500">
                           {test.type} • {test.vus} virtual users
                         </span>
+                        {test.hasAiSummary && (
+                          <span className="mt-1 inline-flex w-fit items-center gap-1 rounded-full bg-primary/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-primary">
+                            <Brain className="h-3 w-3" /> AI Summary
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-slate-400">{formatDateTime(test.createdAt)}</td>
@@ -282,6 +306,15 @@ export const TestHistoryPage = () => {
                         >
                           <ExternalLink className="w-3.5 h-3.5" /> View
                         </button>
+                        {!["running", "queued"].includes(test.status) && !test.hasAiSummary && (
+                          <button
+                            onClick={() => void handleGenerateSummary(test.id)}
+                            disabled={aiGeneratingRunIds.has(test.id)}
+                            className="h-9 rounded-lg border border-primary/30 bg-primary/10 px-3 text-xs font-semibold text-primary hover:bg-primary/20 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {aiGeneratingRunIds.has(test.id) ? "Generating..." : "AI Summary"}
+                          </button>
+                        )}
                         <button
                           onClick={() => void handleDeleteOne(test.id)}
                           className="h-9 w-9 rounded-lg border border-white/10 bg-white/[0.04] text-slate-400 hover:border-rose-500/40 hover:text-rose-500 transition-colors grid place-content-center"
