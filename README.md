@@ -232,14 +232,14 @@ Default local URLs:
 
 This repo includes:
 
-- `Dockerfile`
-- `docker-compose.yml`
+- `Dockerfile` (multi-stage build with k6 binary support)
+- `docker-compose.yml` (MongoDB, Redis, Node.js services)
 
 Compose services:
 
-- `loadpulse` (app)
-- `mongo`
-- `redis`
+- `loadpulse` (app running on PM2 cluster mode)
+- `mongo` (MongoDB 7)
+- `redis` (Redis 7-alpine)
 
 Run:
 
@@ -255,6 +255,190 @@ Port behavior:
 - Container Mongo port: `27017`
 
 If you already use Mongo on `27017`, keep `MONGO_PORT=27018` (or any free host port).
+
+## PM2 Cluster Mode for Production
+
+LoadPulse supports multi-worker scaling via PM2 cluster mode for optimal CPU utilization.
+
+### Configuration
+
+- **File**: `ecosystem.config.cjs` (PM2 configuration)
+- **Version**: PM2 5.4.3
+- **Default behavior**: Uses all available CPU cores (`instances: "max"`)
+
+### Environment Variable
+
+```env
+PM2_INSTANCES=max  # or any specific number (e.g., 4, 8)
+```
+
+### How It Works
+
+- PM2 starts multiple Node.js worker processes (default: CPU core count)
+- Integration scheduler runs only on instance 0 (singleton pattern) to avoid duplicate jobs
+- Instance detection via `NODE_APP_INSTANCE` environment variable
+- Load balancing automatically distributes requests across workers
+- Graceful restarts supported via PM2 runtime
+
+### Example: Start with 8 instances
+
+```bash
+PM2_INSTANCES=8 npm run start:cluster
+# or
+PM2_INSTANCES=8 docker compose up --build
+```
+
+### Scheduler Singleton Pattern
+
+```javascript
+const isPm2Cluster = process.env.NODE_APP_INSTANCE !== undefined;
+const shouldRunIntegrationScheduler = !isPm2Cluster || process.env.NODE_APP_INSTANCE === "0";
+```
+
+Only instance 0 runs the integration scheduler (cron jobs). Other instances skip initialization to prevent job duplication across workers.
+
+## AI Integration Features
+
+LoadPulse includes AI-powered capabilities for enhanced test creation and analysis.
+
+### Supported AI Models
+
+Currently supported AI providers:
+
+- **Gemini** - Google's generative AI model
+- **Groq** - High-speed inference LLM
+- **OpenRouter** - Multi-model AI routing service
+
+### AI Model Configuration
+
+- **Storage**: AI settings stored per user in MongoDB
+- **API Endpoints**:
+  - `GET /api/ai/models` - List available AI models
+  - `POST /api/ai/models` - Configure AI integration (select model and API key)
+  - `GET /api/ai/history` - View AI request history
+  - `POST /api/ai/generate-script` - Generate k6 scripts via AI
+
+### AI-Generated k6 Scripts
+
+The system can leverage AI to:
+
+- Generate performance test scenarios from natural language
+- Create complex k6 scripts with custom metrics
+- Suggest optimal VU and ramp-up profiles
+- Generate realistic data payloads for testing
+
+### Usage
+
+Configure your AI model in Settings → AI Integration, then:
+
+1. Navigate to **New Test**
+2. Use the "Generate with AI" option to describe your test scenario
+3. AI generates a pre-configured k6 script
+4. Review and run the generated test
+
+### Data Privacy
+
+- AI requests are logged in `AIHistoryEvent` collection
+- User API keys are encrypted before storage
+- Disable AI integration in admin settings if not needed
+
+## Advanced k6 Testing
+
+LoadPulse supports advanced k6 performance testing with rich scripting capabilities.
+
+### k6 Features Supported
+
+- **Virtual Users (VUs)**: Configurable load levels
+- **Duration**: Custom test run lengths
+- **Ramp-up strategies**: Linear, exponential, and step-based ramps
+- **Custom metrics**: Counters, gauges, trends, rates
+- **Checks**: Pass/fail assertions on responses
+- **Thresholds**: Performance requirements (e.g., p95 latency < 500ms)
+- **Modules**: Built-in k6 libraries (http, ws, encoding, crypto, etc.)
+
+### Script Editor
+
+LoadPulse provides an in-app script editor with:
+
+- Syntax highlighting for k6/JavaScript
+- Real-time validation
+- Template library for common patterns
+- Rich text documentation (Markdown support)
+
+### Generate k6 Scripts
+
+Scripts can be created via:
+
+1. **Manual editing** - Write k6 scripts directly in the editor
+2. **AI generation** - Describe test scenarios in natural language
+3. **Predefined templates** - Use built-in patterns for common tests
+
+Example k6 script structure:
+
+```javascript
+import http from 'k6/http';
+import { check, sleep } from 'k6';
+
+export const options = {
+  vus: 10,
+  duration: '30s',
+  thresholds: {
+    http_req_duration: ['p(95)<500'],
+    http_req_failed: ['rate<0.1'],
+  },
+};
+
+export default function () {
+  const res = http.get('https://example.com');
+  check(res, {
+    'status is 200': (r) => r.status === 200,
+  });
+  sleep(1);
+}
+```
+
+### Results & Analysis
+
+Test results include:
+
+- **Aggregated metrics**: Min/max/avg/p50/p90/p95/p99 latencies
+- **Time-series data**: Trend visualization with Recharts
+- **Summary statistics**: Total requests, passed/failed checks, error rates
+- **Real-time updates**: Live metrics dashboard during test execution
+
+## Release Automation
+
+LoadPulse uses Google Release-Please for semantic versioning with custom commit patterns.
+
+### Configuration
+
+- **File**: `.release-please-config.json`
+- **Workflow**: `.github/workflows/release.yml`
+- **Commit patterns**:
+  - `!feat` → MINOR version bump (new features)
+  - `!fix` → PATCH version bump (bug fixes)
+  - `feat` / `fix` → No release (treated like docs/chore)
+
+### Conventional Commit Format
+
+```
+!feat: Add new performance metric tracking
+!fix: Correct k6 script generation bug
+chore: Update dependencies (no release)
+```
+
+### Automatic Release Process
+
+1. Commit with `!feat` or `!fix` prefix
+2. Push to `master` branch
+3. Release-Please action creates a release PR
+4. PR auto-merges on approval
+5. GitHub release published with changelog
+6. NPM package updated (if applicable)
+
+### Manual Release Notes
+
+Provide custom release notes via `.github/release-notes.md` (optional).
 
 ## Redis Caching Details
 
