@@ -246,6 +246,8 @@ export interface TestRunDetail extends TestHistoryItem {
   liveMetrics: {
     totalRequests: number;
     avgLatencyMs: number;
+    p95LatencyMs: number;
+    p99LatencyMs: number;
     errorRatePct: number;
     throughputRps: number;
     lastUpdatedAt: string | null;

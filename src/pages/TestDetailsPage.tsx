@@ -86,8 +86,8 @@ export const TestDetailsPage = () => {
       avgLatency: `${Math.round(final?.avgLatencyMs ?? live?.avgLatencyMs ?? 0)}ms`,
       errorRate: `${(final?.errorRatePct ?? live?.errorRatePct ?? 0).toFixed(2)}%`,
       rps: Number((final?.throughputRps ?? live?.throughputRps ?? 0).toFixed(2)),
-      p95: `${Math.round(final?.p95LatencyMs ?? 0)}ms`,
-      p99: `${Math.round(final?.p99LatencyMs ?? 0)}ms`,
+      p95: `${Math.round(final?.p95LatencyMs ?? live?.p95LatencyMs ?? 0)}ms`,
+      p99: `${Math.round(final?.p99LatencyMs ?? live?.p99LatencyMs ?? 0)}ms`,
     };
   }, [detail]);
 

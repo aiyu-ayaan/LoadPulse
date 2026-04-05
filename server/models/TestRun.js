@@ -23,6 +23,8 @@ const liveMetricsSchema = new mongoose.Schema(
   {
     totalRequests: { type: Number, default: 0 },
     avgLatencyMs: { type: Number, default: 0 },
+    p95LatencyMs: { type: Number, default: 0 },
+    p99LatencyMs: { type: Number, default: 0 },
     errorRatePct: { type: Number, default: 0 },
     throughputRps: { type: Number, default: 0 },
     statusCodes: { type: statusCodeSchema, default: () => ({}) },
