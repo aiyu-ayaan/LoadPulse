@@ -144,6 +144,45 @@ export interface AdminUser {
   updatedAt: string;
 }
 
+export type AIProvider = "google" | "groq" | "openrouter" | "ollama";
+
+export interface AdminAIIntegration {
+  id: string;
+  name: string;
+  provider: AIProvider;
+  baseUrl: string;
+  isEnabled: boolean;
+  hasApiKey: boolean;
+  apiKeyPreview: string;
+  modelCount: number;
+  lastValidatedAt: string | null;
+  lastError: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminAIModel {
+  id: string;
+  name: string;
+  integrationId: string;
+  integrationName: string;
+  provider: AIProvider;
+  providerModelId: string;
+  priority: number;
+  isEnabled: boolean;
+  lastUsedAt: string | null;
+  lastError: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AdminAIModelCatalogResponse {
+  provider: AIProvider;
+  source: "remote" | "fallback";
+  warning: string;
+  models: Array<{ id: string; label: string }>;
+}
+
 export interface DashboardKpis {
   totalRequests: number;
   avgResponseTimeMs: number;
@@ -458,6 +497,90 @@ export const setAdminUserRole = (userId: string, isAdmin: boolean) =>
   request<{ data: AdminUser }>(`/api/admin/users/${encodeURIComponent(userId)}/admin`, {
     method: "PATCH",
     body: JSON.stringify({ isAdmin }),
+  });
+
+export const fetchAdminAiOverview = () =>
+  request<{ data: { integrations: AdminAIIntegration[]; models: AdminAIModel[] } }>("/api/admin/ai/overview");
+
+export const fetchAdminAiIntegrations = () =>
+  request<{ data: AdminAIIntegration[] }>("/api/admin/ai/integrations");
+
+export const createAdminAiIntegration = (payload: {
+  name: string;
+  provider: AIProvider;
+  apiKey?: string;
+  baseUrl?: string;
+  isEnabled?: boolean;
+}) =>
+  request<{ data: AdminAIIntegration }>("/api/admin/ai/integrations", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const updateAdminAiIntegration = (
+  integrationId: string,
+  payload: {
+    name?: string;
+    provider?: AIProvider;
+    apiKey?: string;
+    baseUrl?: string;
+    isEnabled?: boolean;
+  },
+) =>
+  request<{ data: AdminAIIntegration }>(`/api/admin/ai/integrations/${encodeURIComponent(integrationId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteAdminAiIntegration = (integrationId: string) =>
+  request<{ success: boolean }>(`/api/admin/ai/integrations/${encodeURIComponent(integrationId)}`, {
+    method: "DELETE",
+  });
+
+export const fetchAdminAiIntegrationModelCatalog = (integrationId: string) =>
+  request<{ data: AdminAIModelCatalogResponse }>(
+    `/api/admin/ai/integrations/${encodeURIComponent(integrationId)}/models-catalog`,
+  );
+
+export const fetchAdminAiModels = () =>
+  request<{ data: AdminAIModel[] }>("/api/admin/ai/models");
+
+export const createAdminAiModel = (payload: {
+  name: string;
+  integrationId: string;
+  providerModelId: string;
+  priority?: number;
+  isEnabled?: boolean;
+}) =>
+  request<{ data: AdminAIModel }>("/api/admin/ai/models", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
+export const reorderAdminAiModels = (modelIds: string[]) =>
+  request<{ success: boolean }>("/api/admin/ai/models/reorder", {
+    method: "POST",
+    body: JSON.stringify({ modelIds }),
+  });
+
+export const updateAdminAiModel = (
+  modelId: string,
+  payload: {
+    name?: string;
+    integrationId?: string;
+    providerModelId?: string;
+    priority?: number;
+    isEnabled?: boolean;
+  },
+) =>
+  request<{ data: AdminAIModel }>(`/api/admin/ai/models/${encodeURIComponent(modelId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const deleteAdminAiModel = (modelId: string) =>
+  request<{ success: boolean }>(`/api/admin/ai/models/${encodeURIComponent(modelId)}`, {
+    method: "DELETE",
   });
 
 export const fetchProjectAccess = (projectId: string) =>
