@@ -284,6 +284,7 @@ export interface TestHistoryItem {
   createdAt: string;
   startedAt: string | null;
   endedAt: string | null;
+  username: string;
   avgLatencyMs: number | null;
   errorRatePct: number | null;
   totalRequests: number | null;

@@ -60,11 +60,12 @@ export const AdminQueuePage = () => {
       {error && <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div>}
 
       <div className="overflow-hidden rounded-xl border border-white/10 bg-[#171819]">
-        <div className="grid grid-cols-[1.2fr_1fr_0.8fr_0.8fr_1fr] border-b border-white/10 px-4 py-2 text-xs uppercase tracking-[0.12em] text-slate-500">
+        <div className="grid grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.7fr_1fr] border-b border-white/10 px-4 py-2 text-xs uppercase tracking-[0.12em] text-slate-500">
           <p>Test</p>
           <p>Project</p>
           <p>Status</p>
           <p>Load</p>
+          <p>Username</p>
           <p>Created</p>
         </div>
 
@@ -76,7 +77,7 @@ export const AdminQueuePage = () => {
           items.map((item) => (
             <div
               key={item.id}
-              className="grid grid-cols-1 gap-2 border-b border-white/10 px-4 py-3 text-sm text-slate-200 md:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_1fr]"
+              className="grid grid-cols-1 gap-2 border-b border-white/10 px-4 py-3 text-sm text-slate-200 md:grid-cols-[1.2fr_1fr_0.8fr_0.8fr_0.7fr_1fr]"
             >
               <div className="min-w-0">
                 <p className="truncate font-semibold text-white">{item.name}</p>
@@ -85,15 +86,14 @@ export const AdminQueuePage = () => {
               <div className="truncate text-slate-300">{item.projectName}</div>
               <div>
                 <span
-                  className={`rounded px-2 py-1 text-xs ${
-                    item.status === "success"
+                  className={`rounded px-2 py-1 text-xs ${item.status === "success"
                       ? "bg-emerald-500/20 text-emerald-200"
                       : item.status === "failed"
                         ? "bg-rose-500/20 text-rose-200"
                         : item.status === "stopped"
                           ? "bg-amber-500/20 text-amber-200"
-                        : "bg-primary/20 text-primary"
-                  }`}
+                          : "bg-primary/20 text-primary"
+                    }`}
                 >
                   {item.status}
                 </span>
@@ -101,6 +101,7 @@ export const AdminQueuePage = () => {
               <div className="text-slate-300">
                 {item.vus} VUs • {item.duration}
               </div>
+              <div className="text-slate-300">{item.username || "-"}</div>
               <div className="text-slate-400">{new Date(item.createdAt).toLocaleString()}</div>
             </div>
           ))

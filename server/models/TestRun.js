@@ -95,6 +95,12 @@ const testRunSchema = new mongoose.Schema(
     liveMetrics: { type: liveMetricsSchema, default: () => ({}) },
     finalMetrics: { type: finalMetricsSchema, default: null },
     aiSummary: { type: aiSummarySchema, default: null },
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+    username: { type: String, default: "", trim: true, maxlength: 120 },
   },
   { timestamps: true },
 );

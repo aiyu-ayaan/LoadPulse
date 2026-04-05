@@ -1,12 +1,11 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { CircleUserRound, Info, ListOrdered, Settings, Shield, ArrowLeft, LogOut, CheckCircle2, Brain, History } from "lucide-react";
+import { CircleUserRound, Info, Settings, Shield, ArrowLeft, LogOut, CheckCircle2, Brain, History } from "lucide-react";
 import { useAuth } from "../../context/useAuth";
 
 const adminLinks = [
   { to: "/admin/accounts", label: "Accounts", icon: CircleUserRound },
   { to: "/admin/ai", label: "AI", icon: Brain },
   { to: "/admin/ai-history", label: "AI History", icon: History },
-  { to: "/admin/queue", label: "Queue", icon: ListOrdered },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/about", label: "About", icon: Info },
 ];
@@ -15,7 +14,6 @@ const titleByPath: Record<string, string> = {
   "/admin/ai": "AI",
   "/admin/ai-history": "AI History",
   "/admin/accounts": "Accounts",
-  "/admin/queue": "Queue",
   "/admin/settings": "Settings",
   "/admin/about": "About",
 };
@@ -42,8 +40,7 @@ export const AdminConsoleLayout = () => {
                 key={item.to}
                 to={item.to}
                 className={({ isActive }) =>
-                  `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${
-                    isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
+                  `flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm transition ${isActive ? "bg-white/12 text-white" : "text-slate-300 hover:bg-white/6 hover:text-white"
                   }`
                 }
               >

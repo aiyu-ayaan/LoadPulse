@@ -262,6 +262,7 @@ const toHistoryItem = (run) => ({
   createdAt: run.createdAt,
   startedAt: run.startedAt,
   endedAt: run.endedAt,
+  username: run.username || "",
   avgLatencyMs: run.finalMetrics?.avgLatencyMs ?? run.liveMetrics?.avgLatencyMs ?? null,
   errorRatePct: run.finalMetrics?.errorRatePct ?? run.liveMetrics?.errorRatePct ?? null,
   totalRequests: run.finalMetrics?.totalRequests ?? run.liveMetrics?.totalRequests ?? null,
@@ -1998,7 +1999,7 @@ const ensureProjectRunAccess = async (projectId, authUser) => {
   return { project, access };
 };
 
-const createTestRunFromTemplate = async (template) => {
+const createTestRunFromTemplate = async (template, userId = null, username = "") => {
   const testRun = await TestRun.create({
     projectId: template.projectId,
     projectName: template.projectName,
@@ -2010,6 +2011,8 @@ const createTestRunFromTemplate = async (template) => {
     duration: template.duration,
     vus: template.vus,
     script: template.script,
+    userId,
+    username,
   });
 
   await invalidateApiCache();
@@ -4432,7 +4435,7 @@ app.post("/api/tests/run", async (req, res) => {
     return res.status(400).json({ error });
   }
 
-  const testRun = await createTestRunFromTemplate(value);
+  const testRun = await createTestRunFromTemplate(value, req.authUser._id, req.authUser.username);
 
   return res.status(202).json({
     id: testRun._id.toString(),

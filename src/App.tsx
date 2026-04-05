@@ -14,7 +14,6 @@ import { SignInPage } from './pages/SignInPage';
 import { AdminSignInPage } from './pages/AdminSignInPage';
 import { AdminConsoleLayout } from './pages/admin/AdminConsoleLayout';
 import { AdminAccountsPage } from './pages/admin/AdminAccountsPage';
-import { AdminQueuePage } from './pages/admin/AdminQueuePage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAboutPage } from './pages/admin/AdminAboutPage';
 import { AdminAiPage } from './pages/admin/AdminAiPage';
@@ -80,7 +79,6 @@ function App() {
           <Route path="ai" element={<AdminAiPage />} />
           <Route path="ai-history" element={<AdminAiHistoryPage />} />
           <Route path="accounts" element={<AdminAccountsPage />} />
-          <Route path="queue" element={<AdminQueuePage />} />
           <Route path="settings" element={<AdminSettingsPage />} />
           <Route path="about" element={<AdminAboutPage />} />
           <Route path="*" element={<NotFoundPage />} />
