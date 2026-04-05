@@ -183,6 +183,43 @@ export interface AdminAIModelCatalogResponse {
   models: Array<{ id: string; label: string }>;
 }
 
+export interface AdminAISettings {
+  autoGenerateTestSummary: boolean;
+  updatedAt: string | null;
+}
+
+export interface AdminAIHistoryEvent {
+  id: string;
+  createdAt: string;
+  contextType: "test-summary" | "test-config" | "other";
+  contextAction: string;
+  projectId: string | null;
+  runId: string | null;
+  actor: {
+    userId: string | null;
+    username: string;
+    email: string;
+  };
+  provider: string;
+  integrationId: string | null;
+  integrationName: string;
+  modelId: string | null;
+  modelName: string;
+  providerModelId: string;
+  status: "success" | "failed";
+  error: string;
+  promptSystem: string;
+  promptUser: string;
+  responsePreview: string;
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    promptChars: number;
+    responseChars: number;
+  };
+}
+
 export interface DashboardKpis {
   totalRequests: number;
   avgResponseTimeMs: number;
@@ -275,6 +312,11 @@ export interface TestRunAiSummary {
   providerModelId: string;
   integrationName: string;
   cached?: boolean;
+}
+
+export interface AiRuntimeSettings {
+  autoGenerateTestSummary: boolean;
+  updatedAt: string | null;
 }
 
 export interface AIGeneratedTestConfig {
@@ -530,7 +572,7 @@ export const setAdminUserRole = (userId: string, isAdmin: boolean) =>
   });
 
 export const fetchAdminAiOverview = () =>
-  request<{ data: { integrations: AdminAIIntegration[]; models: AdminAIModel[] } }>("/api/admin/ai/overview");
+  request<{ data: { settings: AdminAISettings; integrations: AdminAIIntegration[]; models: AdminAIModel[] } }>("/api/admin/ai/overview");
 
 export const fetchAdminAiIntegrations = () =>
   request<{ data: AdminAIIntegration[] }>("/api/admin/ai/integrations");
@@ -574,6 +616,45 @@ export const fetchAdminAiIntegrationModelCatalog = (integrationId: string) =>
 
 export const fetchAdminAiModels = () =>
   request<{ data: AdminAIModel[] }>("/api/admin/ai/models");
+
+export const fetchAdminAiSettings = () =>
+  request<{ data: AdminAISettings }>("/api/admin/ai/settings");
+
+export const updateAdminAiSettings = (payload: { autoGenerateTestSummary: boolean }) =>
+  request<{ data: AdminAISettings }>("/api/admin/ai/settings", {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const fetchAdminAiHistory = (payload: {
+  search?: string;
+  provider?: string;
+  status?: "success" | "failed" | "";
+  contextType?: "test-summary" | "test-config" | "other" | "";
+  page?: number;
+  limit?: number;
+}) => {
+  const query = new URLSearchParams();
+  if (payload.search) {
+    query.set("search", payload.search);
+  }
+  if (payload.provider) {
+    query.set("provider", payload.provider);
+  }
+  if (payload.status) {
+    query.set("status", payload.status);
+  }
+  if (payload.contextType) {
+    query.set("contextType", payload.contextType);
+  }
+  query.set("page", String(payload.page ?? 1));
+  query.set("limit", String(payload.limit ?? 40));
+
+  return request<{
+    data: AdminAIHistoryEvent[];
+    pagination: { page: number; limit: number; total: number; totalPages: number };
+  }>(`/api/admin/ai/history?${query.toString()}`);
+};
 
 export const createAdminAiModel = (payload: {
   name: string;
@@ -636,6 +717,8 @@ export const runTest = (payload: RunTestPayload) =>
     body: JSON.stringify(payload),
   });
 
+export const fetchAiRuntimeSettings = () => request<{ data: AiRuntimeSettings }>("/api/ai/settings");
+
 export const generateAiTestConfig = (
   projectId: string,
   payload: { goal: string; targetUrl?: string; type?: string },
@@ -685,7 +768,12 @@ export const fetchTestRun = (id: string) =>
   request<{ data: TestRunDetail }>(`/api/tests/${encodeURIComponent(id)}`);
 
 export const fetchTestRunAiSummary = (id: string) =>
-  request<{ data: TestRunAiSummary }>(`/api/tests/${encodeURIComponent(id)}/ai-summary`);
+  request<{ data: TestRunAiSummary | null }>(`/api/tests/${encodeURIComponent(id)}/ai-summary`);
+
+export const generateTestRunAiSummary = (id: string) =>
+  request<{ data: TestRunAiSummary }>(`/api/tests/${encodeURIComponent(id)}/ai-summary/generate`, {
+    method: "POST",
+  });
 
 export const regenerateTestRunAiSummary = (id: string) =>
   request<{ data: TestRunAiSummary }>(`/api/tests/${encodeURIComponent(id)}/ai-summary/regenerate`, {

@@ -213,7 +213,7 @@
   }
 
   .ai-rich-content {
-    @apply text-sm leading-6 text-slate-200;
+    @apply text-sm leading-6 text-slate-100;
   }
 
   .ai-rich-content h1,
@@ -222,7 +222,7 @@
   .ai-rich-content h4,
   .ai-rich-content h5,
   .ai-rich-content h6 {
-    @apply mt-4 mb-2 text-slate-100;
+    @apply mt-4 mb-2 text-slate-50;
     letter-spacing: -0.01em;
   }
 
@@ -231,11 +231,19 @@
   }
 
   .ai-rich-content h2 {
-    @apply text-lg;
+    @apply text-lg text-cyan-100;
+  }
+
+  .ai-rich-content h3 {
+    @apply text-base text-emerald-100;
   }
 
   .ai-rich-content p {
     @apply my-2;
+  }
+
+  .ai-rich-content strong {
+    @apply font-semibold text-cyan-100;
   }
 
   .ai-rich-content ul,
@@ -255,12 +263,16 @@
     @apply my-1;
   }
 
+  .ai-rich-content li::marker {
+    color: rgba(56, 189, 248, 0.95);
+  }
+
   .ai-rich-content blockquote {
-    @apply my-3 border-l-2 border-primary/40 pl-4 text-slate-300;
+    @apply my-3 rounded-r-lg border-l-2 border-primary/55 bg-primary/10 py-2 pl-4 text-slate-200;
   }
 
   .ai-rich-content code {
-    @apply rounded bg-black/30 px-1.5 py-0.5 text-[12px] text-slate-100;
+    @apply rounded border border-cyan-500/20 bg-black/35 px-1.5 py-0.5 text-[12px] text-cyan-100;
   }
 
   .ai-rich-content pre {
@@ -282,6 +294,14 @@
   .ai-rich-content th,
   .ai-rich-content td {
     @apply border border-white/10 px-2 py-1.5 text-left text-xs;
+  }
+
+  .ai-rich-content th {
+    @apply bg-white/[0.05] text-slate-100;
+  }
+
+  .ai-rich-content hr {
+    @apply my-4 border-white/15;
   }
 }
 

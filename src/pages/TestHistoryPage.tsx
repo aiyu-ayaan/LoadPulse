@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { EmptyState } from "../components/EmptyState";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { useNavigate } from "react-router-dom";
-import { clearHistory, deleteTestRun, fetchTestHistory, fetchTestRunAiSummary, stopTestRun, type TestHistoryItem } from "../lib/api";
+import { clearHistory, deleteTestRun, fetchTestHistory, generateTestRunAiSummary, stopTestRun, type TestHistoryItem } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
 
@@ -149,7 +149,7 @@ export const TestHistoryPage = () => {
   const handleGenerateSummary = async (id: string) => {
     setAiGeneratingRunIds((previous) => new Set(previous).add(id));
     try {
-      await fetchTestRunAiSummary(id);
+      await generateTestRunAiSummary(id);
       setData((previous) =>
         previous.map((item) => (item.id === id ? { ...item, hasAiSummary: true } : item)),
       );

@@ -1,9 +1,10 @@
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
-import { CircleUserRound, Info, ListOrdered, Settings, Shield, ArrowLeft, LogOut, CheckCircle2, Brain } from "lucide-react";
+import { CircleUserRound, Info, ListOrdered, Settings, Shield, ArrowLeft, LogOut, CheckCircle2, Brain, History } from "lucide-react";
 import { useAuth } from "../../context/useAuth";
 
 const adminLinks = [
   { to: "/admin/ai", label: "AI", icon: Brain },
+  { to: "/admin/ai-history", label: "AI History", icon: History },
   { to: "/admin/accounts", label: "Accounts", icon: CircleUserRound },
   { to: "/admin/queue", label: "Queue", icon: ListOrdered },
   { to: "/admin/settings", label: "Settings", icon: Settings },
@@ -12,6 +13,7 @@ const adminLinks = [
 
 const titleByPath: Record<string, string> = {
   "/admin/ai": "AI",
+  "/admin/ai-history": "AI History",
   "/admin/accounts": "Accounts",
   "/admin/queue": "Queue",
   "/admin/settings": "Settings",

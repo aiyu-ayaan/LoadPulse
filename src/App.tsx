@@ -18,6 +18,7 @@ import { AdminQueuePage } from './pages/admin/AdminQueuePage';
 import { AdminSettingsPage } from './pages/admin/AdminSettingsPage';
 import { AdminAboutPage } from './pages/admin/AdminAboutPage';
 import { AdminAiPage } from './pages/admin/AdminAiPage';
+import { AdminAiHistoryPage } from './pages/admin/AdminAiHistoryPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { useAuth } from './context/useAuth';
 
@@ -77,6 +78,7 @@ function App() {
         <Route path="/admin" element={<RequireAdmin><AdminConsoleLayout /></RequireAdmin>}>
           <Route index element={<Navigate to="/admin/ai" replace />} />
           <Route path="ai" element={<AdminAiPage />} />
+          <Route path="ai-history" element={<AdminAiHistoryPage />} />
           <Route path="accounts" element={<AdminAccountsPage />} />
           <Route path="queue" element={<AdminQueuePage />} />
           <Route path="settings" element={<AdminSettingsPage />} />

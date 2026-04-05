@@ -21,9 +21,10 @@ import { HelperNote } from "../components/HelperNote";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { useProjects } from "../context/useProjects";
 import {
+  fetchAiRuntimeSettings,
   fetchTestHistory,
   fetchTestRun,
-  fetchTestRunAiSummary,
+  generateTestRunAiSummary,
   getAuthToken,
   regenerateTestRunAiSummary,
   socketUrl,
@@ -202,6 +203,7 @@ export const ReportsPage = () => {
   const [aiSummariesByRunId, setAiSummariesByRunId] = useState<Record<string, TestRunAiSummary>>({});
   const [aiSummaryError, setAiSummaryError] = useState<string | null>(null);
   const [aiLoadingRunId, setAiLoadingRunId] = useState<string | null>(null);
+  const [autoGenerateAiSummary, setAutoGenerateAiSummary] = useState(false);
   const pollingRef = useRef<number | null>(null);
 
   const loadReport = useCallback(async () => {
@@ -254,6 +256,28 @@ export const ReportsPage = () => {
     setIsLoading(true);
     void loadReport();
   }, [loadReport]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAiRuntimeSettings = async () => {
+      try {
+        const response = await fetchAiRuntimeSettings();
+        if (isMounted) {
+          setAutoGenerateAiSummary(Boolean(response.data.autoGenerateTestSummary));
+        }
+      } catch {
+        if (isMounted) {
+          setAutoGenerateAiSummary(false);
+        }
+      }
+    };
+
+    void loadAiRuntimeSettings();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedProject?.id]);
 
   useEffect(() => {
     if (!selectedProject) {
@@ -340,7 +364,13 @@ export const ReportsPage = () => {
   const canGenerateAiSummary = selectedRun ? ["success", "failed", "stopped"].includes(selectedRun.status) : false;
 
   useEffect(() => {
-    if (!selectedRun || !canGenerateAiSummary || selectedRunAiSummary || aiLoadingRunId === selectedRun.id) {
+    if (
+      !autoGenerateAiSummary ||
+      !selectedRun ||
+      !canGenerateAiSummary ||
+      selectedRunAiSummary ||
+      aiLoadingRunId === selectedRun.id
+    ) {
       return;
     }
 
@@ -348,7 +378,7 @@ export const ReportsPage = () => {
       setAiLoadingRunId(selectedRun.id);
       setAiSummaryError(null);
       try {
-        const response = await fetchTestRunAiSummary(selectedRun.id);
+        const response = await generateTestRunAiSummary(selectedRun.id);
         setAiSummariesByRunId((previous) => ({
           ...previous,
           [selectedRun.id]: response.data,
@@ -361,23 +391,26 @@ export const ReportsPage = () => {
     };
 
     void loadSummary();
-  }, [aiLoadingRunId, canGenerateAiSummary, selectedRun, selectedRunAiSummary]);
+  }, [aiLoadingRunId, autoGenerateAiSummary, canGenerateAiSummary, selectedRun, selectedRunAiSummary]);
 
-  const regenerateSelectedRunSummary = async () => {
+  const runSelectedRunSummary = async () => {
     if (!selectedRun || !canGenerateAiSummary) {
       return;
     }
 
+    const shouldRegenerate = Boolean(selectedRunAiSummary?.text);
     setAiLoadingRunId(selectedRun.id);
     setAiSummaryError(null);
     try {
-      const response = await regenerateTestRunAiSummary(selectedRun.id);
+      const response = shouldRegenerate
+        ? await regenerateTestRunAiSummary(selectedRun.id)
+        : await generateTestRunAiSummary(selectedRun.id);
       setAiSummariesByRunId((previous) => ({
         ...previous,
         [selectedRun.id]: response.data,
       }));
     } catch (requestError) {
-      setAiSummaryError(requestError instanceof Error ? requestError.message : "Unable to regenerate AI summary.");
+      setAiSummaryError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
     } finally {
       setAiLoadingRunId((current) => (current === selectedRun.id ? null : current));
     }
@@ -542,7 +575,7 @@ export const ReportsPage = () => {
         p95 means slower visitors near the end, and p99 shows the very slowest edge cases. Lower times are better.
       </HelperNote>
 
-      <section className="rounded-2xl border border-white/10 bg-[#171819] p-5">
+      <section className="relative overflow-hidden rounded-2xl border border-primary/20 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.2),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.12),transparent_40%),#171819] p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="inline-flex items-center gap-2 text-base font-semibold text-white">
             <Brain className="h-4 w-4 text-primary" /> AI Executive Summary
@@ -550,12 +583,12 @@ export const ReportsPage = () => {
           {canGenerateAiSummary && (
             <button
               type="button"
-              onClick={() => void regenerateSelectedRunSummary()}
+              onClick={() => void runSelectedRunSummary()}
               disabled={aiLoadingRunId === selectedRun.id}
               className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
             >
               <RefreshCcw className="h-3.5 w-3.5" />
-              {aiLoadingRunId === selectedRun.id ? "Generating..." : "Regenerate"}
+              {aiLoadingRunId === selectedRun.id ? "Generating..." : selectedRunAiSummary ? "Regenerate" : "Generate"}
             </button>
           )}
         </div>
@@ -570,7 +603,7 @@ export const ReportsPage = () => {
               Model: {selectedRunAiSummary.modelName} ({selectedRunAiSummary.provider}) • {selectedRunAiSummary.integrationName}
             </p>
             <div
-              className="ai-rich-content"
+              className="ai-rich-content rounded-xl border border-white/10 bg-black/25 p-4"
               dangerouslySetInnerHTML={{ __html: renderRichTextToHtml(selectedRunAiSummary.text) }}
             />
           </div>

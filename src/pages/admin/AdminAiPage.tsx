@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Bot,
   ArrowDown,
   ArrowUp,
   Brain,
@@ -18,11 +19,13 @@ import {
   fetchAdminAiIntegrationModelCatalog,
   fetchAdminAiOverview,
   reorderAdminAiModels,
+  updateAdminAiSettings,
   updateAdminAiIntegration,
   updateAdminAiModel,
   type AIProvider,
   type AdminAIIntegration,
   type AdminAIModel,
+  type AdminAISettings,
 } from "../../lib/api";
 
 const providerOptions: Array<{ value: AIProvider; label: string; needsKey: boolean; baseUrlHint: string }> = [
@@ -39,8 +42,13 @@ const formatDateTime = (value: string | null) => (value ? new Date(value).toLoca
 export const AdminAiPage = () => {
   const [integrations, setIntegrations] = useState<AdminAIIntegration[]>([]);
   const [models, setModels] = useState<AdminAIModel[]>([]);
+  const [settings, setSettings] = useState<AdminAISettings>({
+    autoGenerateTestSummary: false,
+    updatedAt: null,
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
+  const [isSettingsSaving, setIsSettingsSaving] = useState(false);
   const [isCatalogLoading, setIsCatalogLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -88,6 +96,7 @@ export const AdminAiPage = () => {
     setError(null);
     try {
       const response = await fetchAdminAiOverview();
+      setSettings(response.data.settings);
       setIntegrations(response.data.integrations);
       setModels(response.data.models);
 
@@ -165,6 +174,26 @@ export const AdminAiPage = () => {
       setError(requestError instanceof Error ? requestError.message : "Unable to create AI integration.");
     } finally {
       setIsWorking(false);
+    }
+  };
+
+  const handleToggleAutoGenerate = async () => {
+    setIsSettingsSaving(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const response = await updateAdminAiSettings({
+        autoGenerateTestSummary: !settings.autoGenerateTestSummary,
+      });
+      setSettings(response.data);
+      setSuccess(
+        `Auto-generate test summary is now ${response.data.autoGenerateTestSummary ? "enabled" : "disabled"}.`,
+      );
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update AI settings.");
+    } finally {
+      setIsSettingsSaving(false);
     }
   };
 
@@ -338,6 +367,35 @@ export const AdminAiPage = () => {
             className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-1.5 text-sm text-slate-200 transition hover:bg-white/10"
           >
             <RefreshCcw className="h-4 w-4" /> Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-primary/25 bg-[radial-gradient(circle_at_top_left,rgba(56,189,248,0.2),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(16,185,129,0.12),transparent_38%),#171819] p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="inline-flex items-center gap-2 text-sm font-semibold text-white">
+              <Bot className="h-4 w-4 text-primary" /> Runtime AI Settings
+            </p>
+            <p className="mt-1 text-xs text-slate-300">
+              Auto-generate summary only if enabled. Otherwise users generate manually.
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Last updated: {formatDateTime(settings.updatedAt)}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            disabled={isSettingsSaving}
+            onClick={() => void handleToggleAutoGenerate()}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-xs font-semibold transition disabled:opacity-60 ${
+              settings.autoGenerateTestSummary
+                ? "border-emerald-500/35 bg-emerald-500/10 text-emerald-200"
+                : "border-white/10 bg-white/[0.03] text-slate-200 hover:bg-white/10"
+            }`}
+          >
+            {isSettingsSaving ? "Saving..." : settings.autoGenerateTestSummary ? "Auto-Generate: ON" : "Auto-Generate: OFF"}
           </button>
         </div>
       </div>

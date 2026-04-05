@@ -3,7 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, AlertCircle, Activity, Zap, Clock, ShieldAlert, Square, Brain, RefreshCcw } from "lucide-react";
 import { AreaChart, Area, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 import { KpiCard } from "../components/KpiCard";
-import { fetchTestRun, fetchTestRunAiSummary, regenerateTestRunAiSummary, stopTestRun, type TestRunDetail } from "../lib/api";
+import {
+  fetchAiRuntimeSettings,
+  fetchTestRun,
+  generateTestRunAiSummary,
+  regenerateTestRunAiSummary,
+  stopTestRun,
+  type TestRunDetail,
+} from "../lib/api";
 import { renderRichTextToHtml } from "../lib/rich-text";
 
 const toStatusData = (detail: TestRunDetail | null) => {
@@ -36,6 +43,7 @@ export const TestDetailsPage = () => {
   const [aiError, setAiError] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isAiRegenerating, setIsAiRegenerating] = useState(false);
+  const [autoGenerateAiSummary, setAutoGenerateAiSummary] = useState(false);
   const autoAiRequestedByRunIdRef = useRef<Set<string>>(new Set());
 
   const loadDetail = useCallback(async () => {
@@ -67,7 +75,7 @@ export const TestDetailsPage = () => {
       try {
         const response = force
           ? await regenerateTestRunAiSummary(testId)
-          : await fetchTestRunAiSummary(testId);
+          : await generateTestRunAiSummary(testId);
         setAiSummary(response.data);
         setDetail((previous) => (previous ? { ...previous, aiSummary: response.data } : previous));
       } catch (requestError) {
@@ -84,6 +92,28 @@ export const TestDetailsPage = () => {
     setAiSummary(null);
     setAiError(null);
     autoAiRequestedByRunIdRef.current.clear();
+  }, [testId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadAiRuntimeSettings = async () => {
+      try {
+        const response = await fetchAiRuntimeSettings();
+        if (isMounted) {
+          setAutoGenerateAiSummary(Boolean(response.data.autoGenerateTestSummary));
+        }
+      } catch {
+        if (isMounted) {
+          setAutoGenerateAiSummary(false);
+        }
+      }
+    };
+
+    void loadAiRuntimeSettings();
+    return () => {
+      isMounted = false;
+    };
   }, [testId]);
 
   useEffect(() => {
@@ -141,7 +171,7 @@ export const TestDetailsPage = () => {
   const canGenerateAiSummary = detail ? ["success", "failed", "stopped"].includes(detail.status) : false;
 
   useEffect(() => {
-    if (!detail || !canGenerateAiSummary || aiSummary || isAiLoading) {
+    if (!autoGenerateAiSummary || !detail || !canGenerateAiSummary || aiSummary || isAiLoading || isAiRegenerating) {
       return;
     }
     if (autoAiRequestedByRunIdRef.current.has(detail.id)) {
@@ -149,7 +179,7 @@ export const TestDetailsPage = () => {
     }
     autoAiRequestedByRunIdRef.current.add(detail.id);
     void loadAiSummary(false);
-  }, [aiSummary, canGenerateAiSummary, detail, isAiLoading, loadAiSummary]);
+  }, [aiSummary, autoGenerateAiSummary, canGenerateAiSummary, detail, isAiLoading, isAiRegenerating, loadAiSummary]);
 
   const handleStop = async () => {
     if (!detail || isStopping || !canStop) {
@@ -216,7 +246,7 @@ export const TestDetailsPage = () => {
             </p>
           </div>
 
-          <section className="rounded-2xl border border-white/10 bg-[#171819] p-5">
+          <section className="relative overflow-hidden rounded-2xl border border-primary/20 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.2),transparent_45%),radial-gradient(circle_at_bottom_left,rgba(16,185,129,0.12),transparent_40%),#171819] p-5">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <h2 className="inline-flex items-center gap-2 text-base font-semibold text-white">
                 <Brain className="h-4 w-4 text-primary" /> AI Test Summary
@@ -244,7 +274,7 @@ export const TestDetailsPage = () => {
                   Generated via {aiSummary.modelName} ({aiSummary.provider}) • {aiSummary.integrationName}
                 </p>
                 <div
-                  className="ai-rich-content"
+                  className="ai-rich-content rounded-xl border border-white/10 bg-black/25 p-4"
                   dangerouslySetInnerHTML={{ __html: renderRichTextToHtml(aiSummary.text) }}
                 />
               </div>
