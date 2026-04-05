@@ -694,8 +694,8 @@ export const NewTestPage = () => {
             disabled={isRunning || !canRunCurrentProject}
             onClick={() => void handleRunTest()}
             className={`flex min-w-[200px] items-center justify-center gap-2 rounded-xl py-3.5 px-6 font-bold shadow-lg transition-all ${isRunning || !canRunCurrentProject
-                ? "cursor-not-allowed border border-white/5 bg-slate-800/50 text-slate-400"
-                : "animate-pulse-glow border border-primary/50 bg-gradient-to-b from-primary to-primary/80 text-white hover:from-primary/90 hover:to-primary/70"
+              ? "cursor-not-allowed border border-white/5 bg-slate-800/50 text-slate-400"
+              : "animate-pulse-glow border border-primary/50 bg-gradient-to-b from-primary to-primary/80 text-white hover:from-primary/90 hover:to-primary/70"
               }`}
           >
             {isRunning ? (
