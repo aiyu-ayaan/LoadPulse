@@ -3,9 +3,9 @@ import { CircleUserRound, Info, ListOrdered, Settings, Shield, ArrowLeft, LogOut
 import { useAuth } from "../../context/useAuth";
 
 const adminLinks = [
+  { to: "/admin/accounts", label: "Accounts", icon: CircleUserRound },
   { to: "/admin/ai", label: "AI", icon: Brain },
   { to: "/admin/ai-history", label: "AI History", icon: History },
-  { to: "/admin/accounts", label: "Accounts", icon: CircleUserRound },
   { to: "/admin/queue", label: "Queue", icon: ListOrdered },
   { to: "/admin/settings", label: "Settings", icon: Settings },
   { to: "/admin/about", label: "About", icon: Info },
