@@ -18,6 +18,8 @@ import { Integration } from "./models/Integration.js";
 import { ProjectIntegrationToken } from "./models/ProjectIntegrationToken.js";
 import { AIIntegration } from "./models/AIIntegration.js";
 import { AIModel } from "./models/AIModel.js";
+import { AISetting } from "./models/AISetting.js";
+import { AIHistoryEvent } from "./models/AIHistoryEvent.js";
 import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun, stopActiveRun } from "./services/k6Runner.js";
 import { getSchedulerJobCount, initIntegrationScheduler, scheduleIntegration, unscheduleIntegration } from "./services/integrationScheduler.js";
 import {
@@ -859,6 +861,7 @@ const validateAiModelCreatePayload = (payload) => {
 };
 
 const TERMINAL_TEST_STATUSES = new Set(["success", "failed", "stopped"]);
+const AI_SETTINGS_KEY = "default";
 
 const parseAiContentToText = (value) => {
   if (typeof value === "string") {
@@ -880,6 +883,115 @@ const parseAiContentToText = (value) => {
       .trim();
   }
   return "";
+};
+
+const truncateText = (value, maxLength = 12000) => {
+  const text = String(value ?? "");
+  if (!text) {
+    return "";
+  }
+  if (text.length <= maxLength) {
+    return text;
+  }
+  return `${text.slice(0, Math.max(0, maxLength - 24))}\n...[truncated]`;
+};
+
+const estimateTokensFromText = (text) => {
+  const chars = String(text ?? "").length;
+  return chars > 0 ? Math.max(1, Math.round(chars / 4)) : 0;
+};
+
+const toAiUsage = (usageLike = {}, fallbackText = "") => {
+  const promptTokens = Number(usageLike?.promptTokens ?? usageLike?.prompt_tokens ?? usageLike?.prompt_eval_count ?? 0);
+  const completionTokens = Number(usageLike?.completionTokens ?? usageLike?.completion_tokens ?? usageLike?.eval_count ?? 0);
+  const totalTokensRaw = Number(usageLike?.totalTokens ?? usageLike?.total_tokens ?? usageLike?.totalTokenCount ?? 0);
+  const estimated = estimateTokensFromText(fallbackText);
+
+  const normalizedPrompt = Number.isFinite(promptTokens) && promptTokens > 0 ? Math.floor(promptTokens) : 0;
+  const normalizedCompletion = Number.isFinite(completionTokens) && completionTokens > 0 ? Math.floor(completionTokens) : 0;
+  const normalizedTotal =
+    Number.isFinite(totalTokensRaw) && totalTokensRaw > 0
+      ? Math.floor(totalTokensRaw)
+      : normalizedPrompt + normalizedCompletion > 0
+        ? normalizedPrompt + normalizedCompletion
+        : estimated;
+
+  return {
+    promptTokens: normalizedPrompt,
+    completionTokens: normalizedCompletion,
+    totalTokens: normalizedTotal,
+  };
+};
+
+const getAiSettings = async () => {
+  const existing = await AISetting.findOne({ key: AI_SETTINGS_KEY });
+  if (existing) {
+    return existing;
+  }
+
+  const created = await AISetting.create({
+    key: AI_SETTINGS_KEY,
+    autoGenerateTestSummary: false,
+  });
+  return created;
+};
+
+const toAiSettingsResponse = (setting) => ({
+  autoGenerateTestSummary: Boolean(setting?.autoGenerateTestSummary),
+  updatedAt: setting?.updatedAt ?? null,
+});
+
+const validateAiSettingsPayload = (payload) => {
+  const hasAutoGenerate = Object.prototype.hasOwnProperty.call(payload ?? {}, "autoGenerateTestSummary");
+  if (!hasAutoGenerate) {
+    return { error: "autoGenerateTestSummary is required." };
+  }
+
+  return {
+    value: {
+      autoGenerateTestSummary: Boolean(payload?.autoGenerateTestSummary),
+    },
+  };
+};
+
+const toObjectIdOrNull = (value) => {
+  const normalized = String(value ?? "").trim();
+  if (!normalized || !isValidObjectId(normalized)) {
+    return null;
+  }
+  return new mongoose.Types.ObjectId(normalized);
+};
+
+const writeAiHistoryEvent = async (payload) => {
+  try {
+    await AIHistoryEvent.create({
+      contextType: String(payload?.contextType ?? "other"),
+      contextAction: String(payload?.contextAction ?? "").trim(),
+      projectId: toObjectIdOrNull(payload?.projectId),
+      runId: toObjectIdOrNull(payload?.runId),
+      actorUserId: toObjectIdOrNull(payload?.actorUserId),
+      actorUsername: String(payload?.actorUsername ?? "").trim(),
+      actorEmail: String(payload?.actorEmail ?? "").trim().toLowerCase(),
+      provider: String(payload?.provider ?? "").trim().toLowerCase(),
+      integrationId: toObjectIdOrNull(payload?.integrationId),
+      integrationName: String(payload?.integrationName ?? "").trim(),
+      modelId: toObjectIdOrNull(payload?.modelId),
+      modelName: String(payload?.modelName ?? "").trim(),
+      providerModelId: String(payload?.providerModelId ?? "").trim(),
+      status: String(payload?.status ?? "failed") === "success" ? "success" : "failed",
+      error: truncateText(payload?.error, 2000),
+      promptSystem: truncateText(payload?.promptSystem, 20000),
+      promptUser: truncateText(payload?.promptUser, 40000),
+      responsePreview: truncateText(payload?.responsePreview, 16000),
+      promptChars: Math.max(0, Number(payload?.promptChars ?? 0) || 0),
+      responseChars: Math.max(0, Number(payload?.responseChars ?? 0) || 0),
+      promptTokens: Math.max(0, Number(payload?.promptTokens ?? 0) || 0),
+      completionTokens: Math.max(0, Number(payload?.completionTokens ?? 0) || 0),
+      totalTokens: Math.max(0, Number(payload?.totalTokens ?? 0) || 0),
+    });
+  } catch (historyError) {
+    console.warn("[ai-history] Unable to write AI history event:", String(historyError?.message ?? historyError));
+  }
 };
 
 const extractJsonObjectFromText = (text) => {
@@ -1017,7 +1129,17 @@ const runSingleAiModelCompletion = async (entry, payload) => {
     if (!text) {
       throw new Error("Google returned an empty response.");
     }
-    return text;
+    return {
+      text,
+      usage: toAiUsage(
+        {
+          promptTokens: response?.usageMetadata?.promptTokenCount,
+          completionTokens: response?.usageMetadata?.candidatesTokenCount,
+          totalTokens: response?.usageMetadata?.totalTokenCount,
+        },
+        text,
+      ),
+    };
   }
 
   if (provider === "groq") {
@@ -1046,7 +1168,10 @@ const runSingleAiModelCompletion = async (entry, payload) => {
     if (!text) {
       throw new Error("Groq returned an empty response.");
     }
-    return text;
+    return {
+      text,
+      usage: toAiUsage(response?.usage ?? {}, text),
+    };
   }
 
   if (provider === "openrouter") {
@@ -1075,7 +1200,10 @@ const runSingleAiModelCompletion = async (entry, payload) => {
     if (!text) {
       throw new Error("OpenRouter returned an empty response.");
     }
-    return text;
+    return {
+      text,
+      usage: toAiUsage(response?.usage ?? {}, text),
+    };
   }
 
   if (provider === "ollama") {
@@ -1106,13 +1234,22 @@ const runSingleAiModelCompletion = async (entry, payload) => {
     if (!text) {
       throw new Error("Ollama returned an empty response.");
     }
-    return text;
+    return {
+      text,
+      usage: toAiUsage(
+        {
+          promptTokens: response?.prompt_eval_count,
+          completionTokens: response?.eval_count,
+        },
+        text,
+      ),
+    };
   }
 
   throw new Error(`Unsupported AI provider: ${provider}`);
 };
 
-const executeAiWithFallback = async (payload) => {
+const executeAiWithFallback = async (payload, options = {}) => {
   const chain = await loadEnabledAiExecutionChain();
   if (chain.length === 0) {
     throw new Error("No enabled AI models are configured. Add AI integration and models in Admin > AI.");
@@ -1122,7 +1259,9 @@ const executeAiWithFallback = async (payload) => {
   for (const entry of chain) {
     const provider = normalizeAiProvider(entry.model.provider);
     try {
-      const text = await runSingleAiModelCompletion(entry, payload);
+      const completion = await runSingleAiModelCompletion(entry, payload);
+      const text = String(completion?.text ?? "").trim();
+      const usage = toAiUsage(completion?.usage ?? {}, text);
       await Promise.all([
         AIModel.updateOne(
           { _id: entry.model._id },
@@ -1144,8 +1283,35 @@ const executeAiWithFallback = async (payload) => {
         ),
       ]);
 
+      await writeAiHistoryEvent({
+        contextType: options?.contextType ?? "other",
+        contextAction: options?.contextAction ?? "",
+        projectId: options?.projectId ?? "",
+        runId: options?.runId ?? "",
+        actorUserId: options?.actor?.id ?? "",
+        actorUsername: options?.actor?.username ?? "",
+        actorEmail: options?.actor?.email ?? "",
+        provider,
+        integrationId: entry.integration?._id,
+        integrationName: entry.integration?.name ?? "",
+        modelId: entry.model?._id,
+        modelName: entry.model?.name ?? "",
+        providerModelId: entry.model?.providerModelId ?? "",
+        status: "success",
+        error: "",
+        promptSystem: payload?.systemPrompt ?? "",
+        promptUser: payload?.userPrompt ?? "",
+        responsePreview: text,
+        promptChars: String(payload?.systemPrompt ?? "").length + String(payload?.userPrompt ?? "").length,
+        responseChars: text.length,
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+        totalTokens: usage.totalTokens,
+      });
+
       return {
         text,
+        usage,
         model: entry.model,
         integration: entry.integration,
       };
@@ -1172,6 +1338,32 @@ const executeAiWithFallback = async (payload) => {
           },
         ),
       ]);
+
+      await writeAiHistoryEvent({
+        contextType: options?.contextType ?? "other",
+        contextAction: options?.contextAction ?? "",
+        projectId: options?.projectId ?? "",
+        runId: options?.runId ?? "",
+        actorUserId: options?.actor?.id ?? "",
+        actorUsername: options?.actor?.username ?? "",
+        actorEmail: options?.actor?.email ?? "",
+        provider,
+        integrationId: entry.integration?._id,
+        integrationName: entry.integration?.name ?? "",
+        modelId: entry.model?._id,
+        modelName: entry.model?.name ?? "",
+        providerModelId: entry.model?.providerModelId ?? "",
+        status: "failed",
+        error: message,
+        promptSystem: payload?.systemPrompt ?? "",
+        promptUser: payload?.userPrompt ?? "",
+        responsePreview: "",
+        promptChars: String(payload?.systemPrompt ?? "").length + String(payload?.userPrompt ?? "").length,
+        responseChars: 0,
+        promptTokens: estimateTokensFromText(`${payload?.systemPrompt ?? ""}\n${payload?.userPrompt ?? ""}`),
+        completionTokens: 0,
+        totalTokens: estimateTokensFromText(`${payload?.systemPrompt ?? ""}\n${payload?.userPrompt ?? ""}`),
+      });
     }
   }
 
@@ -1211,6 +1403,12 @@ Keep it concise, practical, and non-generic.
 
 Run data:
 ${JSON.stringify(runContext, null, 2)}`,
+  }, {
+    contextType: "test-summary",
+    contextAction: options?.force ? "regenerate" : "generate",
+    projectId: toObjectIdString(run?.projectId),
+    runId: toObjectIdString(run?._id),
+    actor: options?.actor ?? null,
   });
 
   const summaryRecord = {
@@ -2542,6 +2740,13 @@ app.get("/api/auth/me", async (req, res) => {
   });
 });
 
+app.get("/api/ai/settings", async (_req, res) => {
+  const settings = await getAiSettings();
+  return res.json({
+    data: toAiSettingsResponse(settings),
+  });
+});
+
 app.get("/api/admin/users", requireAdmin, async (req, res) => {
   const cacheKey = buildCacheKey("admin-users", req.authUser);
   const cached = await getCachedJson(cacheKey);
@@ -2700,10 +2905,11 @@ app.get("/api/admin/ai/overview", requireAdmin, async (req, res) => {
 
   await normalizeAiModelPriorities();
 
-  const [integrations, models, counts] = await Promise.all([
+  const [integrations, models, counts, settings] = await Promise.all([
     AIIntegration.find({}).sort({ createdAt: -1 }).lean(),
     AIModel.find({}).sort({ priority: 1, createdAt: 1 }).lean(),
     AIModel.aggregate([{ $group: { _id: "$integrationId", count: { $sum: 1 } } }]),
+    getAiSettings(),
   ]);
 
   const countByIntegrationId = new Map(counts.map((row) => [toObjectIdString(row?._id), Number(row?.count ?? 0)]));
@@ -2711,6 +2917,7 @@ app.get("/api/admin/ai/overview", requireAdmin, async (req, res) => {
 
   const payload = {
     data: {
+      settings: toAiSettingsResponse(settings),
       integrations: integrations.map((integration) =>
         toAIIntegrationResponse(integration, countByIntegrationId.get(integration._id.toString()) ?? 0),
       ),
@@ -2906,6 +3113,117 @@ app.get("/api/admin/ai/models", requireAdmin, async (req, res) => {
 
   await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.adminAi);
   return res.json(payload);
+});
+
+app.get("/api/admin/ai/settings", requireAdmin, async (_req, res) => {
+  const settings = await getAiSettings();
+  return res.json({
+    data: toAiSettingsResponse(settings),
+  });
+});
+
+app.patch("/api/admin/ai/settings", requireAdmin, async (req, res) => {
+  const { value, error } = validateAiSettingsPayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const settings = await AISetting.findOneAndUpdate(
+    { key: AI_SETTINGS_KEY },
+    {
+      $set: {
+        autoGenerateTestSummary: value.autoGenerateTestSummary,
+        updatedByUserId: new mongoose.Types.ObjectId(req.authUser.id),
+      },
+      $setOnInsert: {
+        createdByUserId: new mongoose.Types.ObjectId(req.authUser.id),
+      },
+    },
+    { new: true, upsert: true },
+  );
+
+  await invalidateApiCache();
+  return res.json({
+    data: toAiSettingsResponse(settings),
+  });
+});
+
+app.get("/api/admin/ai/history", requireAdmin, async (req, res) => {
+  const search = String(req.query.search ?? "").trim();
+  const provider = String(req.query.provider ?? "").trim().toLowerCase();
+  const status = String(req.query.status ?? "").trim().toLowerCase();
+  const contextType = String(req.query.contextType ?? "").trim().toLowerCase();
+  const page = Math.max(1, Number(req.query.page ?? 1) || 1);
+  const limit = Math.min(100, Math.max(10, Number(req.query.limit ?? 40) || 40));
+
+  const filter = {};
+  if (provider) {
+    filter.provider = provider;
+  }
+  if (status && ["success", "failed"].includes(status)) {
+    filter.status = status;
+  }
+  if (contextType && ["test-summary", "test-config", "other"].includes(contextType)) {
+    filter.contextType = contextType;
+  }
+  if (search) {
+    const safe = escapeRegex(search);
+    filter.$or = [
+      { actorUsername: { $regex: safe, $options: "i" } },
+      { actorEmail: { $regex: safe, $options: "i" } },
+      { promptUser: { $regex: safe, $options: "i" } },
+      { modelName: { $regex: safe, $options: "i" } },
+      { providerModelId: { $regex: safe, $options: "i" } },
+      { integrationName: { $regex: safe, $options: "i" } },
+    ];
+  }
+
+  const skip = (page - 1) * limit;
+
+  const [rows, total] = await Promise.all([
+    AIHistoryEvent.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
+    AIHistoryEvent.countDocuments(filter),
+  ]);
+
+  return res.json({
+    data: rows.map((row) => ({
+      id: toObjectIdString(row?._id),
+      createdAt: row?.createdAt ?? null,
+      contextType: row?.contextType ?? "other",
+      contextAction: row?.contextAction ?? "",
+      projectId: toObjectIdString(row?.projectId) || null,
+      runId: toObjectIdString(row?.runId) || null,
+      actor: {
+        userId: toObjectIdString(row?.actorUserId) || null,
+        username: row?.actorUsername ?? "",
+        email: row?.actorEmail ?? "",
+      },
+      provider: row?.provider ?? "",
+      integrationId: toObjectIdString(row?.integrationId) || null,
+      integrationName: row?.integrationName ?? "",
+      modelId: toObjectIdString(row?.modelId) || null,
+      modelName: row?.modelName ?? "",
+      providerModelId: row?.providerModelId ?? "",
+      status: row?.status ?? "failed",
+      error: row?.error ?? "",
+      promptSystem: row?.promptSystem ?? "",
+      promptUser: row?.promptUser ?? "",
+      responsePreview: row?.responsePreview ?? "",
+      usage: {
+        promptTokens: Number(row?.promptTokens ?? 0),
+        completionTokens: Number(row?.completionTokens ?? 0),
+        totalTokens: Number(row?.totalTokens ?? 0),
+        promptChars: Number(row?.promptChars ?? 0),
+        responseChars: Number(row?.responseChars ?? 0),
+      },
+    })),
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit)),
+    },
+  });
 });
 
 app.post("/api/admin/ai/models", requireAdmin, async (req, res) => {
@@ -3789,6 +4107,12 @@ ${JSON.stringify(
   null,
   2,
 )}`,
+    }, {
+      contextType: "test-config",
+      contextAction: "generate",
+      projectId: toObjectIdString(project._id),
+      runId: "",
+      actor: req.authUser,
     });
   } catch (aiError) {
     return res.status(502).json({ error: String(aiError?.message ?? aiError ?? "Unable to generate test config.") });
@@ -4036,8 +4360,30 @@ app.get("/api/tests/:id/ai-summary", async (req, res) => {
     return res.status(409).json({ error: "AI summary is available after the run finishes." });
   }
 
+  return res.json({
+    data: run.aiSummary ?? null,
+  });
+});
+
+app.post("/api/tests/:id/ai-summary/generate", async (req, res) => {
+  const runId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(runId)) {
+    return res.status(400).json({ error: "Invalid test run id." });
+  }
+
+  const run = await TestRun.findById(runId);
+  if (!run) {
+    return res.status(404).json({ error: "Test run not found." });
+  }
+  if (!canViewProject(req.authUser, run.projectId)) {
+    return res.status(403).json({ error: "You do not have permission to view this test run." });
+  }
+  if (!TERMINAL_TEST_STATUSES.has(String(run.status ?? ""))) {
+    return res.status(409).json({ error: "AI summary is available after the run finishes." });
+  }
+
   try {
-    const result = await generateRunAiSummary(run, { force: false });
+    const result = await generateRunAiSummary(run, { force: false, actor: req.authUser });
     return res.json({
       data: {
         ...result.summary,
@@ -4067,7 +4413,7 @@ app.post("/api/tests/:id/ai-summary/regenerate", async (req, res) => {
   }
 
   try {
-    const result = await generateRunAiSummary(run, { force: true });
+    const result = await generateRunAiSummary(run, { force: true, actor: req.authUser });
     return res.json({
       data: {
         ...result.summary,
