@@ -61,10 +61,10 @@ export const NewTestPage = () => {
   const [name, setName] = useState("Load Test (20 VUs for 30s)");
   const [isNameDirty, setIsNameDirty] = useState(false);
   const [targetUrl, setTargetUrl] = useState(selectedProject?.baseUrl ?? "https://");
-  const [vus, setVus] = useState(20);
+  const [vus, setVus] = useState<number | "">(20);
   const [duration, setDuration] = useState("30s");
   const [mode, setMode] = useState<"basic" | "stages">("basic");
-  const [stages, setStages] = useState([
+  const [stages, setStages] = useState<Array<{ duration: string; target: number | "" }>>([
     { duration: "1m", target: 20 },
     { duration: "2m", target: 20 },
     { duration: "1m", target: 0 },
@@ -88,13 +88,15 @@ export const NewTestPage = () => {
     }
     setTargetUrl(selectedProject.baseUrl);
     if (!isScriptDirty) {
-      setScript(buildTemplateScript(selectedProject.baseUrl, mode, vus, duration, stages, insecureSkipTLSVerify, thresholds));
+      const parsedStages = stages.map(s => ({ ...s, target: Number(s.target) || 0 }));
+      setScript(buildTemplateScript(selectedProject.baseUrl, mode, Number(vus) || 1, duration, parsedStages, insecureSkipTLSVerify, thresholds));
     }
   }, [selectedProject, isScriptDirty, mode, vus, duration, stages, insecureSkipTLSVerify, thresholds]);
 
   useEffect(() => {
     if (!isScriptDirty) {
-      setScript(buildTemplateScript(targetUrl, mode, vus, duration, stages, insecureSkipTLSVerify, thresholds));
+      const parsedStages = stages.map(s => ({ ...s, target: Number(s.target) || 0 }));
+      setScript(buildTemplateScript(targetUrl, mode, Number(vus) || 1, duration, parsedStages, insecureSkipTLSVerify, thresholds));
     }
   }, [targetUrl, mode, vus, duration, stages, insecureSkipTLSVerify, thresholds, isScriptDirty]);
 
@@ -103,7 +105,7 @@ export const NewTestPage = () => {
       if (mode === "stages") {
         setName(`${type} Test (Stages)`);
       } else {
-        setName(`${type} Test (${vus} VUs for ${duration})`);
+        setName(`${type} Test (${Number(vus) || 1} VUs for ${duration})`);
       }
     }
   }, [type, vus, duration, mode, isNameDirty]);
@@ -127,9 +129,9 @@ export const NewTestPage = () => {
         projectId: selectedProject.id,
         name,
         targetUrl,
-        vus: mode === "stages" ? Math.max(1, ...stages.map((s) => s.target)) : vus,
+        vus: mode === "stages" ? Math.max(1, ...stages.map((s) => Number(s.target) || 0)) : Number(vus) || 1,
         duration: mode === "stages" ? "1m" : duration,
-        script: isScriptDirty || mode === "stages" ? script : "",
+        script: script,
         type,
         region,
       });
@@ -254,7 +256,10 @@ export const NewTestPage = () => {
                       <input
                         type="number"
                         value={vus}
-                        onChange={(event) => setVus(Math.max(1, Number(event.target.value) || 1))}
+                        onChange={(event) => {
+                          const val = event.target.value;
+                          setVus(val === "" ? "" : Math.max(1, parseInt(val, 10) || 1));
+                        }}
                         className="w-full rounded-xl border border-white/10 bg-black/20 py-2.5 pl-10 pr-4 text-sm text-slate-100 outline-none focus:border-primary/50"
                       />
                     </div>
@@ -285,7 +290,8 @@ export const NewTestPage = () => {
                             value={stage.target}
                             onChange={(e) => {
                               const newStages = [...stages];
-                              newStages[i].target = Math.max(0, Number(e.target.value) || 0);
+                              const val = e.target.value;
+                              newStages[i].target = val === "" ? "" : Math.max(0, parseInt(val, 10));
                               setStages(newStages);
                             }}
                             className="w-full rounded-lg border border-white/10 bg-black/20 py-2 px-3 text-sm text-slate-100 outline-none focus:border-primary/50"
@@ -482,13 +488,34 @@ export const NewTestPage = () => {
             </div>
 
             <div className="flex items-center justify-between border-t border-white/10 bg-white/[0.04] px-6 py-3 text-xs text-slate-500">
-              <span>You can ignore this unless you want a custom developer script.</span>
-              <div className="flex gap-4">
-                <span className="flex items-center gap-1">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Script Ready
-                </span>
-                <span>{selectedProject.name}</span>
-              </div>
+              {isScriptDirty ? (
+                <div className="flex items-center justify-between w-full">
+                  <span className="text-amber-500 flex items-center gap-2">
+                    <div className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+                    Custom script active. Form changes will not auto-update code.
+                  </span>
+                  <button 
+                    onClick={() => {
+                      setIsScriptDirty(false);
+                      const parsedStages = stages.map(s => ({ ...s, target: Number(s.target) || 0 }));
+                      setScript(buildTemplateScript(targetUrl, mode, Number(vus) || 1, duration, parsedStages, insecureSkipTLSVerify, thresholds));
+                    }} 
+                    className="text-primary hover:text-primary/80 transition-colors font-semibold"
+                  >
+                    Reset to Form
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <span>You can ignore this unless you want a custom developer script.</span>
+                  <div className="flex gap-4">
+                    <span className="flex items-center gap-1">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Script Ready
+                    </span>
+                    <span>{selectedProject.name}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
