@@ -235,6 +235,7 @@ export interface TestHistoryItem {
   avgLatencyMs: number | null;
   errorRatePct: number | null;
   totalRequests: number | null;
+  hasAiSummary: boolean;
 }
 
 interface TestHistoryResponse {
@@ -263,6 +264,34 @@ export interface RunTestPayload {
   vus: number;
   duration: string;
   script: string;
+}
+
+export interface TestRunAiSummary {
+  text: string;
+  generatedAt: string | null;
+  modelId: string | null;
+  modelName: string;
+  provider: string;
+  providerModelId: string;
+  integrationName: string;
+  cached?: boolean;
+}
+
+export interface AIGeneratedTestConfig {
+  name: string;
+  targetUrl: string;
+  type: string;
+  vus: number;
+  duration: string;
+  script: string;
+  notes: string;
+  ai: {
+    modelId: string;
+    modelName: string;
+    provider: string;
+    providerModelId: string;
+    integrationName: string;
+  };
 }
 
 export interface TestRunDetail extends TestHistoryItem {
@@ -301,6 +330,7 @@ export interface TestRunDetail extends TestHistoryItem {
   } | null;
   errorMessage: string | null;
   script: string;
+  aiSummary: TestRunAiSummary | null;
 }
 
 export interface ProjectIntegration {
@@ -606,6 +636,15 @@ export const runTest = (payload: RunTestPayload) =>
     body: JSON.stringify(payload),
   });
 
+export const generateAiTestConfig = (
+  projectId: string,
+  payload: { goal: string; targetUrl?: string; type?: string },
+) =>
+  request<{ data: AIGeneratedTestConfig }>(`/api/projects/${encodeURIComponent(projectId)}/ai/test-config`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+
 export const fetchTestHistory = (projectId: string, search: string) => {
   const query = new URLSearchParams();
   query.set("projectId", projectId);
@@ -644,6 +683,14 @@ export const stopTestRun = (id: string) =>
 
 export const fetchTestRun = (id: string) =>
   request<{ data: TestRunDetail }>(`/api/tests/${encodeURIComponent(id)}`);
+
+export const fetchTestRunAiSummary = (id: string) =>
+  request<{ data: TestRunAiSummary }>(`/api/tests/${encodeURIComponent(id)}/ai-summary`);
+
+export const regenerateTestRunAiSummary = (id: string) =>
+  request<{ data: TestRunAiSummary }>(`/api/tests/${encodeURIComponent(id)}/ai-summary/regenerate`, {
+    method: "POST",
+  });
 
 export const fetchProjectIntegrations = (projectId: string) =>
   request<{ data: ProjectIntegration[] }>(`/api/projects/${encodeURIComponent(projectId)}/integrations`);
