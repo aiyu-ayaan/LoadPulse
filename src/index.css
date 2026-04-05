@@ -211,6 +211,78 @@
   .script-editor__symbol {
     color: #7dd3fc;
   }
+
+  .ai-rich-content {
+    @apply text-sm leading-6 text-slate-200;
+  }
+
+  .ai-rich-content h1,
+  .ai-rich-content h2,
+  .ai-rich-content h3,
+  .ai-rich-content h4,
+  .ai-rich-content h5,
+  .ai-rich-content h6 {
+    @apply mt-4 mb-2 text-slate-100;
+    letter-spacing: -0.01em;
+  }
+
+  .ai-rich-content h1 {
+    @apply text-xl;
+  }
+
+  .ai-rich-content h2 {
+    @apply text-lg;
+  }
+
+  .ai-rich-content p {
+    @apply my-2;
+  }
+
+  .ai-rich-content ul,
+  .ai-rich-content ol {
+    @apply my-3 pl-5;
+  }
+
+  .ai-rich-content ul {
+    list-style: disc;
+  }
+
+  .ai-rich-content ol {
+    list-style: decimal;
+  }
+
+  .ai-rich-content li {
+    @apply my-1;
+  }
+
+  .ai-rich-content blockquote {
+    @apply my-3 border-l-2 border-primary/40 pl-4 text-slate-300;
+  }
+
+  .ai-rich-content code {
+    @apply rounded bg-black/30 px-1.5 py-0.5 text-[12px] text-slate-100;
+  }
+
+  .ai-rich-content pre {
+    @apply my-3 overflow-x-auto rounded-xl border border-white/10 bg-black/35 p-3 text-[12px] text-slate-100;
+  }
+
+  .ai-rich-content pre code {
+    @apply bg-transparent p-0;
+  }
+
+  .ai-rich-content a {
+    @apply text-primary underline decoration-primary/60 underline-offset-2;
+  }
+
+  .ai-rich-content table {
+    @apply my-3 w-full border-collapse overflow-hidden rounded-xl border border-white/10;
+  }
+
+  .ai-rich-content th,
+  .ai-rich-content td {
+    @apply border border-white/10 px-2 py-1.5 text-left text-xs;
+  }
 }
 
 ::-webkit-scrollbar {

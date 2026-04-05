@@ -32,6 +32,7 @@ import {
   type TestRunDetail,
 } from "../lib/api";
 import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
+import { renderRichTextToHtml } from "../lib/rich-text";
 
 type PercentilePoint = {
   time: string;
@@ -568,7 +569,10 @@ export const ReportsPage = () => {
             <p className="text-xs text-slate-500">
               Model: {selectedRunAiSummary.modelName} ({selectedRunAiSummary.provider}) • {selectedRunAiSummary.integrationName}
             </p>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">{selectedRunAiSummary.text}</p>
+            <div
+              className="ai-rich-content"
+              dangerouslySetInnerHTML={{ __html: renderRichTextToHtml(selectedRunAiSummary.text) }}
+            />
           </div>
         ) : (
           <p className="text-sm text-slate-400">

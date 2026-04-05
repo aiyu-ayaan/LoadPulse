@@ -4,6 +4,7 @@ import { ArrowLeft, AlertCircle, Activity, Zap, Clock, ShieldAlert, Square, Brai
 import { AreaChart, Area, ResponsiveContainer, CartesianGrid, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 import { KpiCard } from "../components/KpiCard";
 import { fetchTestRun, fetchTestRunAiSummary, regenerateTestRunAiSummary, stopTestRun, type TestRunDetail } from "../lib/api";
+import { renderRichTextToHtml } from "../lib/rich-text";
 
 const toStatusData = (detail: TestRunDetail | null) => {
   const counts = detail?.finalMetrics?.statusCodes ?? detail?.liveMetrics?.statusCodes;
@@ -43,8 +44,11 @@ export const TestDetailsPage = () => {
     }
 
     const response = await fetchTestRun(testId);
-    setDetail(response.data);
-    setAiSummary(response.data.aiSummary ?? null);
+    setDetail((previous) => ({
+      ...response.data,
+      aiSummary: response.data.aiSummary ?? previous?.aiSummary ?? null,
+    }));
+    setAiSummary((previous) => response.data.aiSummary ?? previous ?? null);
   }, [testId]);
 
   const loadAiSummary = useCallback(
@@ -65,7 +69,7 @@ export const TestDetailsPage = () => {
           ? await regenerateTestRunAiSummary(testId)
           : await fetchTestRunAiSummary(testId);
         setAiSummary(response.data);
-        await loadDetail();
+        setDetail((previous) => (previous ? { ...previous, aiSummary: response.data } : previous));
       } catch (requestError) {
         setAiError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
       } finally {
@@ -73,8 +77,14 @@ export const TestDetailsPage = () => {
         setIsAiRegenerating(false);
       }
     },
-    [loadDetail, testId],
+    [testId],
   );
+
+  useEffect(() => {
+    setAiSummary(null);
+    setAiError(null);
+    autoAiRequestedByRunIdRef.current.clear();
+  }, [testId]);
 
   useEffect(() => {
     if (!testId) {
@@ -233,7 +243,10 @@ export const TestDetailsPage = () => {
                 <p className="text-xs text-slate-500">
                   Generated via {aiSummary.modelName} ({aiSummary.provider}) • {aiSummary.integrationName}
                 </p>
-                <p className="whitespace-pre-wrap text-sm leading-6 text-slate-200">{aiSummary.text}</p>
+                <div
+                  className="ai-rich-content"
+                  dangerouslySetInnerHTML={{ __html: renderRichTextToHtml(aiSummary.text) }}
+                />
               </div>
             ) : (
               <p className="text-sm text-slate-400">
