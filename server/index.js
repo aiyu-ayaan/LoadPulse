@@ -16,6 +16,8 @@ import { TestRun } from "./models/TestRun.js";
 import { User } from "./models/User.js";
 import { Integration } from "./models/Integration.js";
 import { ProjectIntegrationToken } from "./models/ProjectIntegrationToken.js";
+import { AIIntegration } from "./models/AIIntegration.js";
+import { AIModel } from "./models/AIModel.js";
 import { startK6Run, setSocketServer, getActiveRunSnapshots, hasActiveRun, stopActiveRun } from "./services/k6Runner.js";
 import { getSchedulerJobCount, initIntegrationScheduler, scheduleIntegration, unscheduleIntegration } from "./services/integrationScheduler.js";
 import {
@@ -126,10 +128,45 @@ const CACHE_TTL_SECONDS = Object.freeze({
   testDetail: 15,
   dashboard: 10,
   adminUsers: 20,
+  adminAi: 20,
   integrations: 20,
   projectToken: 20,
 });
 const PROJECT_TOKEN_PREFIX = "lpt_";
+const AI_PROVIDERS = Object.freeze(["google", "groq", "openrouter", "ollama"]);
+const PROVIDERS_REQUIRING_API_KEY = new Set(["google", "groq", "openrouter"]);
+const PROVIDER_DEFAULT_BASE_URL = Object.freeze({
+  google: "https://generativelanguage.googleapis.com",
+  groq: "https://api.groq.com",
+  openrouter: "https://openrouter.ai",
+  ollama: "http://localhost:11434",
+});
+const FALLBACK_PROVIDER_MODELS = Object.freeze({
+  google: [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+  ],
+  groq: [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "deepseek-r1-distill-llama-70b",
+    "mixtral-8x7b-32768",
+  ],
+  openrouter: [
+    "openai/gpt-4.1-mini",
+    "anthropic/claude-3.7-sonnet",
+    "google/gemini-2.0-flash-001",
+    "meta-llama/llama-3.3-70b-instruct",
+  ],
+  ollama: [
+    "llama3.2",
+    "mistral",
+    "qwen2.5",
+    "phi4",
+  ],
+});
 
 const toStableObject = (value) => {
   if (Array.isArray(value)) {
@@ -556,6 +593,269 @@ const generateProjectToken = () => `${PROJECT_TOKEN_PREFIX}${randomBytes(24).toS
 
 const readProjectTokenFromRequest = (req) =>
   readBearerToken(req.headers.authorization ?? req.headers["x-project-token"] ?? req.query?.token ?? req.body?.token);
+
+const normalizeAiProvider = (value) => String(value ?? "").trim().toLowerCase();
+
+const normalizeBaseUrl = (value) => String(value ?? "").trim().replace(/\/+$/, "");
+
+const isValidHttpUrl = (value) => {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+};
+
+const toSecretPreview = (secret) => {
+  const raw = String(secret ?? "");
+  if (!raw) {
+    return "";
+  }
+  if (raw.length <= 4) {
+    return "*".repeat(raw.length);
+  }
+  const head = raw.slice(0, Math.min(4, raw.length));
+  const tail = raw.slice(-Math.min(4, raw.length));
+  return `${head}...${tail}`;
+};
+
+const resolveAiIntegrationBaseUrl = (provider, baseUrl) => {
+  const normalizedProvider = normalizeAiProvider(provider);
+  const fallback = PROVIDER_DEFAULT_BASE_URL[normalizedProvider] ?? "";
+  const normalized = normalizeBaseUrl(baseUrl);
+  return normalized || fallback;
+};
+
+const sanitizeModelList = (models) => {
+  const seen = new Set();
+  const rows = [];
+  for (const entry of models ?? []) {
+    const id = String(entry ?? "").trim();
+    if (!id) {
+      continue;
+    }
+    const key = id.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    rows.push(id);
+  }
+  return rows.sort((a, b) => a.localeCompare(b));
+};
+
+const fetchJsonWithTimeout = async (url, init = {}, timeoutMs = 9000) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    const raw = await response.text();
+    let parsed;
+    try {
+      parsed = raw ? JSON.parse(raw) : {};
+    } catch {
+      parsed = {};
+    }
+    if (!response.ok) {
+      const message = String(parsed?.error?.message ?? parsed?.error ?? raw ?? "").trim();
+      throw new Error(message || `Request failed with status ${response.status}`);
+    }
+    return parsed;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const listProviderModelsFromRemote = async (integrationDoc) => {
+  const provider = normalizeAiProvider(integrationDoc?.provider);
+  const baseUrl = resolveAiIntegrationBaseUrl(provider, integrationDoc?.baseUrl);
+  const apiKey = decryptSecret(integrationDoc?.apiKeyEncrypted, jwtSecret);
+
+  if (PROVIDERS_REQUIRING_API_KEY.has(provider) && !apiKey) {
+    throw new Error(`An API key is required for ${provider} integrations.`);
+  }
+
+  if (provider === "google") {
+    const url = new URL("/v1beta/models", baseUrl);
+    url.searchParams.set("key", apiKey);
+    const payload = await fetchJsonWithTimeout(url.toString());
+    return sanitizeModelList(
+      (payload?.models ?? [])
+        .filter((model) => {
+          const methods = Array.isArray(model?.supportedGenerationMethods) ? model.supportedGenerationMethods : [];
+          return methods.length === 0 || methods.includes("generateContent");
+        })
+        .map((model) => String(model?.name ?? "").replace(/^models\//, "")),
+    );
+  }
+
+  if (provider === "groq") {
+    const url = new URL("/openai/v1/models", baseUrl);
+    const payload = await fetchJsonWithTimeout(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+    });
+    return sanitizeModelList((payload?.data ?? []).map((model) => model?.id));
+  }
+
+  if (provider === "openrouter") {
+    const url = new URL("/api/v1/models", baseUrl);
+    const headers = {};
+    if (apiKey) {
+      headers.Authorization = `Bearer ${apiKey}`;
+    }
+    const payload = await fetchJsonWithTimeout(url.toString(), { headers });
+    return sanitizeModelList((payload?.data ?? []).map((model) => model?.id));
+  }
+
+  if (provider === "ollama") {
+    const url = new URL("/api/tags", baseUrl);
+    const payload = await fetchJsonWithTimeout(url.toString());
+    return sanitizeModelList((payload?.models ?? []).map((model) => model?.name));
+  }
+
+  throw new Error("Unsupported provider.");
+};
+
+const listProviderModels = async (integrationDoc) => {
+  const provider = normalizeAiProvider(integrationDoc?.provider);
+  try {
+    const remoteModels = await listProviderModelsFromRemote(integrationDoc);
+    if (remoteModels.length > 0) {
+      return { models: remoteModels, source: "remote", warning: "" };
+    }
+    return {
+      models: sanitizeModelList(FALLBACK_PROVIDER_MODELS[provider] ?? []),
+      source: "fallback",
+      warning: "No models were returned by provider. Showing fallback models.",
+    };
+  } catch (error) {
+    return {
+      models: sanitizeModelList(FALLBACK_PROVIDER_MODELS[provider] ?? []),
+      source: "fallback",
+      warning: String(error?.message ?? error ?? "Unable to fetch models from provider."),
+    };
+  }
+};
+
+const toAIIntegrationResponse = (integrationDoc, modelCount = 0) => ({
+  id: integrationDoc._id.toString(),
+  name: integrationDoc.name,
+  provider: normalizeAiProvider(integrationDoc.provider),
+  baseUrl: resolveAiIntegrationBaseUrl(integrationDoc.provider, integrationDoc.baseUrl),
+  isEnabled: integrationDoc.isEnabled !== false,
+  hasApiKey: Boolean(integrationDoc.apiKeyEncrypted),
+  apiKeyPreview: integrationDoc.apiKeyPreview ?? "",
+  modelCount: Number(modelCount ?? 0),
+  lastValidatedAt: integrationDoc.lastValidatedAt ?? null,
+  lastError: integrationDoc.lastError ?? "",
+  createdAt: integrationDoc.createdAt,
+  updatedAt: integrationDoc.updatedAt,
+});
+
+const toAIModelResponse = (modelDoc, integrationDoc = null) => ({
+  id: modelDoc._id.toString(),
+  name: modelDoc.name,
+  integrationId: toObjectIdString(modelDoc.integrationId),
+  integrationName: integrationDoc?.name ?? "",
+  provider: normalizeAiProvider(modelDoc.provider),
+  providerModelId: modelDoc.providerModelId,
+  priority: Number(modelDoc.priority ?? 1),
+  isEnabled: modelDoc.isEnabled !== false,
+  lastUsedAt: modelDoc.lastUsedAt ?? null,
+  lastError: modelDoc.lastError ?? "",
+  createdAt: modelDoc.createdAt,
+  updatedAt: modelDoc.updatedAt,
+});
+
+const normalizeAiModelPriorities = async () => {
+  const ordered = await AIModel.find({}).sort({ priority: 1, createdAt: 1 });
+  const operations = [];
+  for (let index = 0; index < ordered.length; index += 1) {
+    const nextPriority = index + 1;
+    if (Number(ordered[index].priority) !== nextPriority) {
+      operations.push({
+        updateOne: {
+          filter: { _id: ordered[index]._id },
+          update: { $set: { priority: nextPriority } },
+        },
+      });
+      ordered[index].priority = nextPriority;
+    }
+  }
+
+  if (operations.length > 0) {
+    await AIModel.bulkWrite(operations);
+  }
+
+  return ordered;
+};
+
+const validateAiIntegrationCreatePayload = (payload) => {
+  const name = String(payload?.name ?? "").trim();
+  const provider = normalizeAiProvider(payload?.provider);
+  const apiKey = String(payload?.apiKey ?? "").trim();
+  const baseUrl = normalizeBaseUrl(payload?.baseUrl);
+  const isEnabled = payload?.isEnabled === undefined ? true : Boolean(payload?.isEnabled);
+
+  if (!name || name.length < 2) {
+    return { error: "Integration name must be at least 2 characters." };
+  }
+  if (!AI_PROVIDERS.includes(provider)) {
+    return { error: "Provider must be one of: google, groq, openrouter, ollama." };
+  }
+  if (PROVIDERS_REQUIRING_API_KEY.has(provider) && !apiKey) {
+    return { error: `API key is required for ${provider}.` };
+  }
+
+  const resolvedBaseUrl = resolveAiIntegrationBaseUrl(provider, baseUrl);
+  if (resolvedBaseUrl && !isValidHttpUrl(resolvedBaseUrl)) {
+    return { error: "Base URL must be a valid http/https URL." };
+  }
+
+  return {
+    value: {
+      name,
+      provider,
+      apiKey,
+      baseUrl: resolvedBaseUrl,
+      isEnabled,
+    },
+  };
+};
+
+const validateAiModelCreatePayload = (payload) => {
+  const name = String(payload?.name ?? "").trim();
+  const integrationId = String(payload?.integrationId ?? "").trim();
+  const providerModelId = String(payload?.providerModelId ?? "").trim();
+  const priorityRaw = Number(payload?.priority);
+  const isEnabled = payload?.isEnabled === undefined ? true : Boolean(payload?.isEnabled);
+
+  if (!name || name.length < 2) {
+    return { error: "AI model name must be at least 2 characters." };
+  }
+  if (!isValidObjectId(integrationId)) {
+    return { error: "A valid integrationId is required." };
+  }
+  if (!providerModelId) {
+    return { error: "A provider model id is required." };
+  }
+
+  return {
+    value: {
+      name,
+      integrationId,
+      providerModelId,
+      priority: Number.isFinite(priorityRaw) && priorityRaw > 0 ? Math.floor(priorityRaw) : null,
+      isEnabled,
+    },
+  };
+};
 
 const normalizeUsername = (value) => String(value ?? "").trim().toLowerCase();
 const normalizeEmail = (value) => String(value ?? "").trim().toLowerCase();
@@ -1967,6 +2267,416 @@ app.patch("/api/admin/users/:id/admin", requireAdmin, async (req, res) => {
   return res.json({
     data: toAdminUserResponse(targetUser),
   });
+});
+
+app.get("/api/admin/ai/overview", requireAdmin, async (req, res) => {
+  const cacheKey = buildCacheKey("admin-ai-overview", req.authUser);
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  await normalizeAiModelPriorities();
+
+  const [integrations, models, counts] = await Promise.all([
+    AIIntegration.find({}).sort({ createdAt: -1 }).lean(),
+    AIModel.find({}).sort({ priority: 1, createdAt: 1 }).lean(),
+    AIModel.aggregate([{ $group: { _id: "$integrationId", count: { $sum: 1 } } }]),
+  ]);
+
+  const countByIntegrationId = new Map(counts.map((row) => [toObjectIdString(row?._id), Number(row?.count ?? 0)]));
+  const integrationById = new Map(integrations.map((integration) => [integration._id.toString(), integration]));
+
+  const payload = {
+    data: {
+      integrations: integrations.map((integration) =>
+        toAIIntegrationResponse(integration, countByIntegrationId.get(integration._id.toString()) ?? 0),
+      ),
+      models: models.map((model) =>
+        toAIModelResponse(model, integrationById.get(toObjectIdString(model.integrationId)) ?? null),
+      ),
+    },
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.adminAi);
+  return res.json(payload);
+});
+
+app.get("/api/admin/ai/integrations", requireAdmin, async (req, res) => {
+  const cacheKey = buildCacheKey("admin-ai-integrations", req.authUser);
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  const [integrations, counts] = await Promise.all([
+    AIIntegration.find({}).sort({ createdAt: -1 }).lean(),
+    AIModel.aggregate([{ $group: { _id: "$integrationId", count: { $sum: 1 } } }]),
+  ]);
+  const countByIntegrationId = new Map(counts.map((row) => [toObjectIdString(row?._id), Number(row?.count ?? 0)]));
+  const payload = {
+    data: integrations.map((integration) =>
+      toAIIntegrationResponse(integration, countByIntegrationId.get(integration._id.toString()) ?? 0),
+    ),
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.adminAi);
+  return res.json(payload);
+});
+
+app.post("/api/admin/ai/integrations", requireAdmin, async (req, res) => {
+  const { value, error } = validateAiIntegrationCreatePayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const integration = await AIIntegration.create({
+    name: value.name,
+    provider: value.provider,
+    apiKeyEncrypted: value.apiKey ? encryptSecret(value.apiKey, jwtSecret) : "",
+    apiKeyPreview: value.apiKey ? toSecretPreview(value.apiKey) : "",
+    baseUrl: value.baseUrl,
+    isEnabled: value.isEnabled,
+    createdByUserId: new mongoose.Types.ObjectId(req.authUser.id),
+  });
+
+  await invalidateApiCache();
+  return res.status(201).json({
+    data: toAIIntegrationResponse(integration, 0),
+  });
+});
+
+app.patch("/api/admin/ai/integrations/:id", requireAdmin, async (req, res) => {
+  const integrationId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(integrationId)) {
+    return res.status(400).json({ error: "Invalid integration id." });
+  }
+
+  const integration = await AIIntegration.findById(integrationId);
+  if (!integration) {
+    return res.status(404).json({ error: "AI integration not found." });
+  }
+
+  const hasName = Object.prototype.hasOwnProperty.call(req.body ?? {}, "name");
+  const hasProvider = Object.prototype.hasOwnProperty.call(req.body ?? {}, "provider");
+  const hasApiKey = Object.prototype.hasOwnProperty.call(req.body ?? {}, "apiKey");
+  const hasBaseUrl = Object.prototype.hasOwnProperty.call(req.body ?? {}, "baseUrl");
+  const hasIsEnabled = Object.prototype.hasOwnProperty.call(req.body ?? {}, "isEnabled");
+
+  if (!hasName && !hasProvider && !hasApiKey && !hasBaseUrl && !hasIsEnabled) {
+    return res.status(400).json({ error: "No updates were provided." });
+  }
+
+  const nextName = hasName ? String(req.body?.name ?? "").trim() : integration.name;
+  if (!nextName || nextName.length < 2) {
+    return res.status(400).json({ error: "Integration name must be at least 2 characters." });
+  }
+
+  const nextProvider = hasProvider ? normalizeAiProvider(req.body?.provider) : normalizeAiProvider(integration.provider);
+  if (!AI_PROVIDERS.includes(nextProvider)) {
+    return res.status(400).json({ error: "Provider must be one of: google, groq, openrouter, ollama." });
+  }
+
+  const nextApiKeyRaw = hasApiKey ? String(req.body?.apiKey ?? "").trim() : null;
+  const hasAnyApiKey = hasApiKey ? Boolean(nextApiKeyRaw) : Boolean(integration.apiKeyEncrypted);
+  if (PROVIDERS_REQUIRING_API_KEY.has(nextProvider) && !hasAnyApiKey) {
+    return res.status(400).json({ error: `API key is required for ${nextProvider}.` });
+  }
+
+  const inputBaseUrl = hasBaseUrl ? normalizeBaseUrl(req.body?.baseUrl) : integration.baseUrl;
+  const nextBaseUrl = resolveAiIntegrationBaseUrl(nextProvider, inputBaseUrl);
+  if (nextBaseUrl && !isValidHttpUrl(nextBaseUrl)) {
+    return res.status(400).json({ error: "Base URL must be a valid http/https URL." });
+  }
+
+  integration.name = nextName;
+  integration.provider = nextProvider;
+  integration.baseUrl = nextBaseUrl;
+  if (hasIsEnabled) {
+    integration.isEnabled = Boolean(req.body?.isEnabled);
+  }
+  if (hasApiKey) {
+    integration.apiKeyEncrypted = nextApiKeyRaw ? encryptSecret(nextApiKeyRaw, jwtSecret) : "";
+    integration.apiKeyPreview = nextApiKeyRaw ? toSecretPreview(nextApiKeyRaw) : "";
+  }
+  await integration.save();
+
+  if (hasProvider) {
+    await AIModel.updateMany(
+      { integrationId: integration._id },
+      {
+        $set: { provider: nextProvider },
+      },
+    );
+  }
+
+  const modelCount = await AIModel.countDocuments({ integrationId: integration._id });
+  await invalidateApiCache();
+  return res.json({
+    data: toAIIntegrationResponse(integration, modelCount),
+  });
+});
+
+app.delete("/api/admin/ai/integrations/:id", requireAdmin, async (req, res) => {
+  const integrationId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(integrationId)) {
+    return res.status(400).json({ error: "Invalid integration id." });
+  }
+
+  const modelCount = await AIModel.countDocuments({ integrationId });
+  if (modelCount > 0) {
+    return res.status(409).json({ error: "Delete linked AI models first before removing this integration." });
+  }
+
+  const deleted = await AIIntegration.findByIdAndDelete(integrationId);
+  if (!deleted) {
+    return res.status(404).json({ error: "AI integration not found." });
+  }
+
+  await invalidateApiCache();
+  return res.json({ success: true });
+});
+
+app.get("/api/admin/ai/integrations/:id/models-catalog", requireAdmin, async (req, res) => {
+  const integrationId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(integrationId)) {
+    return res.status(400).json({ error: "Invalid integration id." });
+  }
+
+  const integration = await AIIntegration.findById(integrationId);
+  if (!integration) {
+    return res.status(404).json({ error: "AI integration not found." });
+  }
+
+  const providerModels = await listProviderModels(integration);
+  integration.lastValidatedAt = new Date();
+  integration.lastError = providerModels.warning || "";
+  await integration.save();
+
+  await invalidateApiCache();
+  return res.json({
+    data: {
+      provider: normalizeAiProvider(integration.provider),
+      models: providerModels.models.map((id) => ({ id, label: id })),
+      source: providerModels.source,
+      warning: providerModels.warning,
+    },
+  });
+});
+
+app.get("/api/admin/ai/models", requireAdmin, async (req, res) => {
+  const cacheKey = buildCacheKey("admin-ai-models", req.authUser);
+  const cached = await getCachedJson(cacheKey);
+  if (cached) {
+    return res.json(cached);
+  }
+
+  await normalizeAiModelPriorities();
+
+  const models = await AIModel.find({}).sort({ priority: 1, createdAt: 1 }).lean();
+  const integrationIds = [...new Set(models.map((model) => toObjectIdString(model.integrationId)).filter(Boolean))];
+  const integrations = await AIIntegration.find({ _id: { $in: integrationIds } }).lean();
+  const integrationById = new Map(integrations.map((integration) => [integration._id.toString(), integration]));
+
+  const payload = {
+    data: models.map((model) => toAIModelResponse(model, integrationById.get(toObjectIdString(model.integrationId)) ?? null)),
+  };
+
+  await setCachedJson(cacheKey, payload, CACHE_TTL_SECONDS.adminAi);
+  return res.json(payload);
+});
+
+app.post("/api/admin/ai/models", requireAdmin, async (req, res) => {
+  const { value, error } = validateAiModelCreatePayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const integration = await AIIntegration.findById(value.integrationId);
+  if (!integration) {
+    return res.status(404).json({ error: "AI integration not found." });
+  }
+
+  const existingCount = await AIModel.countDocuments({});
+  const targetPriority = Math.max(1, Math.min(value.priority ?? existingCount + 1, existingCount + 1));
+
+  if (targetPriority <= existingCount) {
+    await AIModel.updateMany(
+      { priority: { $gte: targetPriority } },
+      {
+        $inc: { priority: 1 },
+      },
+    );
+  }
+
+  const model = await AIModel.create({
+    name: value.name,
+    integrationId: integration._id,
+    provider: normalizeAiProvider(integration.provider),
+    providerModelId: value.providerModelId,
+    priority: targetPriority,
+    isEnabled: value.isEnabled,
+    createdByUserId: new mongoose.Types.ObjectId(req.authUser.id),
+  });
+
+  await invalidateApiCache();
+  return res.status(201).json({
+    data: toAIModelResponse(model, integration),
+  });
+});
+
+app.post("/api/admin/ai/models/reorder", requireAdmin, async (req, res) => {
+  const modelIds = Array.isArray(req.body?.modelIds) ? req.body.modelIds.map((entry) => String(entry ?? "").trim()) : [];
+  if (!modelIds.length) {
+    return res.status(400).json({ error: "modelIds must contain at least one model id." });
+  }
+  if (!modelIds.every((id) => isValidObjectId(id))) {
+    return res.status(400).json({ error: "modelIds contains an invalid id." });
+  }
+  if (new Set(modelIds).size !== modelIds.length) {
+    return res.status(400).json({ error: "modelIds must not contain duplicates." });
+  }
+
+  const totalModelCount = await AIModel.countDocuments({});
+  if (totalModelCount !== modelIds.length) {
+    return res.status(400).json({ error: "Provide all model ids in the new priority order." });
+  }
+
+  const models = await AIModel.find({ _id: { $in: modelIds } }).lean();
+  if (models.length !== modelIds.length) {
+    return res.status(400).json({ error: "One or more model ids were not found." });
+  }
+
+  await AIModel.bulkWrite(
+    modelIds.map((id, index) => ({
+      updateOne: {
+        filter: { _id: id },
+        update: { $set: { priority: index + 1 } },
+      },
+    })),
+  );
+
+  await invalidateApiCache();
+  return res.json({ success: true });
+});
+
+app.patch("/api/admin/ai/models/:id", requireAdmin, async (req, res) => {
+  const modelId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(modelId)) {
+    return res.status(400).json({ error: "Invalid AI model id." });
+  }
+
+  const model = await AIModel.findById(modelId);
+  if (!model) {
+    return res.status(404).json({ error: "AI model not found." });
+  }
+
+  const hasName = Object.prototype.hasOwnProperty.call(req.body ?? {}, "name");
+  const hasIntegrationId = Object.prototype.hasOwnProperty.call(req.body ?? {}, "integrationId");
+  const hasProviderModelId = Object.prototype.hasOwnProperty.call(req.body ?? {}, "providerModelId");
+  const hasPriority = Object.prototype.hasOwnProperty.call(req.body ?? {}, "priority");
+  const hasIsEnabled = Object.prototype.hasOwnProperty.call(req.body ?? {}, "isEnabled");
+
+  if (!hasName && !hasIntegrationId && !hasProviderModelId && !hasPriority && !hasIsEnabled) {
+    return res.status(400).json({ error: "No updates were provided." });
+  }
+
+  if (hasName) {
+    const nextName = String(req.body?.name ?? "").trim();
+    if (!nextName || nextName.length < 2) {
+      return res.status(400).json({ error: "AI model name must be at least 2 characters." });
+    }
+    model.name = nextName;
+  }
+
+  let integration = null;
+  if (hasIntegrationId) {
+    const integrationId = String(req.body?.integrationId ?? "").trim();
+    if (!isValidObjectId(integrationId)) {
+      return res.status(400).json({ error: "A valid integrationId is required." });
+    }
+    integration = await AIIntegration.findById(integrationId);
+    if (!integration) {
+      return res.status(404).json({ error: "AI integration not found." });
+    }
+    model.integrationId = integration._id;
+    model.provider = normalizeAiProvider(integration.provider);
+  }
+
+  if (hasProviderModelId) {
+    const nextProviderModelId = String(req.body?.providerModelId ?? "").trim();
+    if (!nextProviderModelId) {
+      return res.status(400).json({ error: "A provider model id is required." });
+    }
+    model.providerModelId = nextProviderModelId;
+  }
+
+  if (hasIsEnabled) {
+    model.isEnabled = Boolean(req.body?.isEnabled);
+  }
+
+  if (hasPriority) {
+    const requestedPriority = Number(req.body?.priority);
+    if (!Number.isFinite(requestedPriority) || requestedPriority <= 0) {
+      return res.status(400).json({ error: "priority must be a positive number." });
+    }
+
+    const currentPriority = Number(model.priority ?? 1);
+    const maxPriority = Math.max(1, await AIModel.countDocuments({}));
+    const targetPriority = Math.max(1, Math.min(Math.floor(requestedPriority), maxPriority));
+
+    if (targetPriority < currentPriority) {
+      await AIModel.updateMany(
+        {
+          _id: { $ne: model._id },
+          priority: { $gte: targetPriority, $lt: currentPriority },
+        },
+        { $inc: { priority: 1 } },
+      );
+      model.priority = targetPriority;
+    } else if (targetPriority > currentPriority) {
+      await AIModel.updateMany(
+        {
+          _id: { $ne: model._id },
+          priority: { $gt: currentPriority, $lte: targetPriority },
+        },
+        { $inc: { priority: -1 } },
+      );
+      model.priority = targetPriority;
+    }
+  }
+
+  await model.save();
+  await normalizeAiModelPriorities();
+
+  const responseIntegration =
+    integration ?? (await AIIntegration.findById(toObjectIdString(model.integrationId)).lean()) ?? null;
+
+  await invalidateApiCache();
+  return res.json({
+    data: toAIModelResponse(model, responseIntegration),
+  });
+});
+
+app.delete("/api/admin/ai/models/:id", requireAdmin, async (req, res) => {
+  const modelId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(modelId)) {
+    return res.status(400).json({ error: "Invalid AI model id." });
+  }
+
+  const deleted = await AIModel.findByIdAndDelete(modelId);
+  if (!deleted) {
+    return res.status(404).json({ error: "AI model not found." });
+  }
+
+  await AIModel.updateMany(
+    { priority: { $gt: Number(deleted.priority ?? 1) } },
+    { $inc: { priority: -1 } },
+  );
+
+  await normalizeAiModelPriorities();
+  await invalidateApiCache();
+  return res.json({ success: true });
 });
 
 app.patch("/api/auth/profile", async (req, res) => {
