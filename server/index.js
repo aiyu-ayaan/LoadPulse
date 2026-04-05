@@ -263,6 +263,7 @@ const toHistoryItem = (run) => ({
   avgLatencyMs: run.finalMetrics?.avgLatencyMs ?? run.liveMetrics?.avgLatencyMs ?? null,
   errorRatePct: run.finalMetrics?.errorRatePct ?? run.liveMetrics?.errorRatePct ?? null,
   totalRequests: run.finalMetrics?.totalRequests ?? run.liveMetrics?.totalRequests ?? null,
+  hasAiSummary: Boolean(run?.aiSummary?.text),
 });
 
 const toRunningTestSummary = (snapshot) => ({
@@ -854,6 +855,427 @@ const validateAiModelCreatePayload = (payload) => {
       priority: Number.isFinite(priorityRaw) && priorityRaw > 0 ? Math.floor(priorityRaw) : null,
       isEnabled,
     },
+  };
+};
+
+const TERMINAL_TEST_STATUSES = new Set(["success", "failed", "stopped"]);
+
+const parseAiContentToText = (value) => {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") {
+          return item;
+        }
+        if (item && typeof item === "object" && typeof item.text === "string") {
+          return item.text;
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return "";
+};
+
+const extractJsonObjectFromText = (text) => {
+  const raw = String(text ?? "").trim();
+  if (!raw) {
+    throw new Error("AI returned an empty response.");
+  }
+
+  const fencedMatch = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch?.[1]) {
+    return JSON.parse(fencedMatch[1]);
+  }
+
+  const firstBrace = raw.indexOf("{");
+  const lastBrace = raw.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return JSON.parse(raw.slice(firstBrace, lastBrace + 1));
+  }
+
+  return JSON.parse(raw);
+};
+
+const toAiRunMetricsContext = (run) => {
+  const finalMetrics = run?.finalMetrics ?? null;
+  const liveMetrics = run?.liveMetrics ?? null;
+  const metrics = finalMetrics ?? liveMetrics ?? {};
+  const statusCodes = metrics?.statusCodes ?? {
+    ok2xx: 0,
+    client4xx: 0,
+    server5xx: 0,
+    other: 0,
+  };
+
+  return {
+    runId: toObjectIdString(run?._id),
+    name: run?.name ?? "",
+    status: run?.status ?? "",
+    type: run?.type ?? "",
+    targetUrl: run?.targetUrl ?? "",
+    vus: Number(run?.vus ?? 0),
+    duration: run?.duration ?? "",
+    startedAt: run?.startedAt ?? null,
+    endedAt: run?.endedAt ?? null,
+    totals: {
+      totalRequests: Number(metrics?.totalRequests ?? 0),
+      throughputRps: Number(metrics?.throughputRps ?? 0),
+      errorRatePct: Number(metrics?.errorRatePct ?? 0),
+    },
+    latencyMs: {
+      avg: Number(metrics?.avgLatencyMs ?? 0),
+      p95: Number(metrics?.p95LatencyMs ?? 0),
+      p99: Number(metrics?.p99LatencyMs ?? 0),
+    },
+    checks: {
+      passed: Number(finalMetrics?.checksPassed ?? 0),
+      failed: Number(finalMetrics?.checksFailed ?? 0),
+    },
+    statusCodes: {
+      ok2xx: Number(statusCodes?.ok2xx ?? 0),
+      client4xx: Number(statusCodes?.client4xx ?? 0),
+      server5xx: Number(statusCodes?.server5xx ?? 0),
+      other: Number(statusCodes?.other ?? 0),
+    },
+    errorMessage: run?.errorMessage ?? "",
+  };
+};
+
+const loadEnabledAiExecutionChain = async () => {
+  const models = await AIModel.find({ isEnabled: true }).sort({ priority: 1, createdAt: 1 });
+  if (models.length === 0) {
+    return [];
+  }
+
+  const integrationIds = [...new Set(models.map((model) => toObjectIdString(model.integrationId)).filter(Boolean))];
+  const integrations = await AIIntegration.find({ _id: { $in: integrationIds }, isEnabled: true });
+  const integrationById = new Map(integrations.map((integration) => [integration._id.toString(), integration]));
+
+  return models
+    .map((model) => ({
+      model,
+      integration: integrationById.get(toObjectIdString(model.integrationId)) ?? null,
+    }))
+    .filter((entry) => Boolean(entry.integration));
+};
+
+const runSingleAiModelCompletion = async (entry, payload) => {
+  const provider = normalizeAiProvider(entry?.model?.provider);
+  const integration = entry.integration;
+  const modelId = String(entry?.model?.providerModelId ?? "").trim();
+  if (!modelId) {
+    throw new Error("Provider model id is missing.");
+  }
+
+  const baseUrl = resolveAiIntegrationBaseUrl(provider, integration?.baseUrl);
+  if (!baseUrl || !isValidHttpUrl(baseUrl)) {
+    throw new Error("Integration base URL is invalid.");
+  }
+
+  const apiKey = decryptSecret(integration?.apiKeyEncrypted, jwtSecret);
+  if (PROVIDERS_REQUIRING_API_KEY.has(provider) && !apiKey) {
+    throw new Error(`API key is missing for ${provider}.`);
+  }
+
+  const systemPrompt = String(payload?.systemPrompt ?? "").trim();
+  const userPrompt = String(payload?.userPrompt ?? "").trim();
+  const maxTokens = Math.max(128, Math.min(1800, Number(payload?.maxTokens ?? 700) || 700));
+  const temperature = Math.max(0, Math.min(1.2, Number(payload?.temperature ?? 0.25)));
+
+  if (provider === "google") {
+    const url = new URL(`/v1beta/models/${encodeURIComponent(modelId)}:generateContent`, baseUrl);
+    url.searchParams.set("key", apiKey);
+    const response = await fetchJsonWithTimeout(
+      url.toString(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          generationConfig: {
+            temperature,
+            maxOutputTokens: maxTokens,
+          },
+          contents: [
+            {
+              role: "user",
+              parts: [{ text: `${systemPrompt}\n\n${userPrompt}` }],
+            },
+          ],
+        }),
+      },
+      15000,
+    );
+    const text = parseAiContentToText(response?.candidates?.[0]?.content?.parts ?? []);
+    if (!text) {
+      throw new Error("Google returned an empty response.");
+    }
+    return text;
+  }
+
+  if (provider === "groq") {
+    const url = new URL("/openai/v1/chat/completions", baseUrl);
+    const response = await fetchJsonWithTimeout(
+      url.toString(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelId,
+          temperature,
+          max_tokens: maxTokens,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+      },
+      15000,
+    );
+    const text = parseAiContentToText(response?.choices?.[0]?.message?.content);
+    if (!text) {
+      throw new Error("Groq returned an empty response.");
+    }
+    return text;
+  }
+
+  if (provider === "openrouter") {
+    const url = new URL("/api/v1/chat/completions", baseUrl);
+    const response = await fetchJsonWithTimeout(
+      url.toString(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: modelId,
+          temperature,
+          max_tokens: maxTokens,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+      },
+      15000,
+    );
+    const text = parseAiContentToText(response?.choices?.[0]?.message?.content);
+    if (!text) {
+      throw new Error("OpenRouter returned an empty response.");
+    }
+    return text;
+  }
+
+  if (provider === "ollama") {
+    const url = new URL("/api/chat", baseUrl);
+    const response = await fetchJsonWithTimeout(
+      url.toString(),
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: modelId,
+          stream: false,
+          options: {
+            temperature,
+            num_predict: maxTokens,
+          },
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+      },
+      20000,
+    );
+    const text = parseAiContentToText(response?.message?.content ?? response?.response);
+    if (!text) {
+      throw new Error("Ollama returned an empty response.");
+    }
+    return text;
+  }
+
+  throw new Error(`Unsupported AI provider: ${provider}`);
+};
+
+const executeAiWithFallback = async (payload) => {
+  const chain = await loadEnabledAiExecutionChain();
+  if (chain.length === 0) {
+    throw new Error("No enabled AI models are configured. Add AI integration and models in Admin > AI.");
+  }
+
+  const failures = [];
+  for (const entry of chain) {
+    const provider = normalizeAiProvider(entry.model.provider);
+    try {
+      const text = await runSingleAiModelCompletion(entry, payload);
+      await Promise.all([
+        AIModel.updateOne(
+          { _id: entry.model._id },
+          {
+            $set: {
+              lastUsedAt: new Date(),
+              lastError: "",
+            },
+          },
+        ),
+        AIIntegration.updateOne(
+          { _id: entry.integration._id },
+          {
+            $set: {
+              lastValidatedAt: new Date(),
+              lastError: "",
+            },
+          },
+        ),
+      ]);
+
+      return {
+        text,
+        model: entry.model,
+        integration: entry.integration,
+      };
+    } catch (error) {
+      const message = String(error?.message ?? error ?? "AI provider request failed.");
+      failures.push(`${entry.model.name} (${provider}): ${message}`);
+
+      await Promise.all([
+        AIModel.updateOne(
+          { _id: entry.model._id },
+          {
+            $set: {
+              lastError: message,
+            },
+          },
+        ),
+        AIIntegration.updateOne(
+          { _id: entry.integration._id },
+          {
+            $set: {
+              lastValidatedAt: new Date(),
+              lastError: message,
+            },
+          },
+        ),
+      ]);
+    }
+  }
+
+  const summary = failures.slice(0, 4).join(" | ");
+  throw new Error(summary || "All AI models failed.");
+};
+
+const generateRunAiSummary = async (runDoc, options = {}) => {
+  const run = typeof runDoc?.toObject === "function" ? runDoc.toObject() : runDoc;
+  if (!run) {
+    throw new Error("Test run not found.");
+  }
+  if (!TERMINAL_TEST_STATUSES.has(String(run.status ?? ""))) {
+    throw new Error("AI summary can only be generated after the test run finishes.");
+  }
+  if (!options.force && run?.aiSummary?.text) {
+    return {
+      cached: true,
+      summary: run.aiSummary,
+    };
+  }
+
+  const runContext = toAiRunMetricsContext(run);
+  const aiResponse = await executeAiWithFallback({
+    temperature: 0.2,
+    maxTokens: 800,
+    systemPrompt:
+      "You are a senior performance testing analyst. Provide actionable, plain-language insights from k6 metrics.",
+    userPrompt: `Analyze this single load-test result and return markdown with these sections:
+- Summary
+- Key Findings
+- Risk Level (Low/Medium/High with reason)
+- Recommended Actions (max 5)
+- Next Test Plan (max 3)
+
+Keep it concise, practical, and non-generic.
+
+Run data:
+${JSON.stringify(runContext, null, 2)}`,
+  });
+
+  const summaryRecord = {
+    text: String(aiResponse.text ?? "").trim(),
+    generatedAt: new Date(),
+    modelId: aiResponse.model._id,
+    modelName: aiResponse.model.name,
+    provider: normalizeAiProvider(aiResponse.model.provider),
+    providerModelId: aiResponse.model.providerModelId,
+    integrationName: aiResponse.integration.name,
+  };
+
+  await TestRun.updateOne(
+    { _id: run._id },
+    {
+      $set: {
+        aiSummary: summaryRecord,
+      },
+    },
+  );
+  await invalidateApiCache();
+
+  return {
+    cached: false,
+    summary: summaryRecord,
+  };
+};
+
+const validateAiTestConfigPayload = (payload) => {
+  const goal = String(payload?.goal ?? "").trim();
+  const targetUrl = String(payload?.targetUrl ?? "").trim();
+  const type = String(payload?.type ?? "Load").trim();
+
+  if (!goal || goal.length < 6) {
+    return { error: "Goal must be at least 6 characters." };
+  }
+  if (targetUrl && !/^https?:\/\//i.test(targetUrl)) {
+    return { error: "Target URL must be a valid http/https URL." };
+  }
+
+  return {
+    value: {
+      goal,
+      targetUrl,
+      type,
+    },
+  };
+};
+
+const sanitizeGeneratedTestConfig = (rawConfig, fallback = {}) => {
+  const durationValue = String(rawConfig?.duration ?? fallback?.duration ?? "30s").trim().toLowerCase();
+  const validDuration = /^\d+[smh]$/.test(durationValue) ? durationValue : "30s";
+  const vusRaw = Number(rawConfig?.vus ?? fallback?.vus ?? 20);
+  const vus = Number.isFinite(vusRaw) ? Math.max(1, Math.min(100000, Math.floor(vusRaw))) : 20;
+  const targetUrl = String(rawConfig?.targetUrl ?? fallback?.targetUrl ?? "").trim();
+  const safeTargetUrl = /^https?:\/\//i.test(targetUrl) ? targetUrl : String(fallback?.targetUrl ?? "").trim();
+
+  return {
+    name: String(rawConfig?.name ?? fallback?.name ?? "AI Generated Test").trim() || "AI Generated Test",
+    targetUrl: safeTargetUrl,
+    type: String(rawConfig?.type ?? fallback?.type ?? "Load").trim() || "Load",
+    vus,
+    duration: validDuration,
+    script: String(rawConfig?.script ?? "").trim(),
+    notes: String(rawConfig?.notes ?? "").trim(),
   };
 };
 
@@ -3302,6 +3724,105 @@ app.delete("/api/projects/:id/integration-token", async (req, res) => {
   return res.json({ success: true });
 });
 
+app.post("/api/projects/:id/ai/test-config", async (req, res) => {
+  const projectId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(projectId)) {
+    return res.status(400).json({ error: "Invalid project id." });
+  }
+
+  const runResult = await ensureProjectRunAccess(projectId, req.authUser);
+  if (runResult.error) {
+    return res.status(runResult.error.status).json({ error: runResult.error.message });
+  }
+
+  const { value, error } = validateAiTestConfigPayload(req.body);
+  if (error) {
+    return res.status(400).json({ error });
+  }
+
+  const project = runResult.project;
+  const seedTargetUrl = value.targetUrl || project.baseUrl;
+
+  let aiResponse;
+  try {
+    aiResponse = await executeAiWithFallback({
+      temperature: 0.35,
+      maxTokens: 1400,
+      systemPrompt:
+        "You are an expert k6 load-testing engineer. Return only valid JSON with practical defaults.",
+      userPrompt: `Generate a single test configuration JSON for LoadPulse.
+Required JSON shape:
+{
+  "name": "string",
+  "targetUrl": "https://...",
+  "type": "Load|Stress|Spike|Smoke",
+  "vus": number,
+  "duration": "e.g. 30s, 5m, 1h",
+  "script": "full k6 javascript script",
+  "notes": "short reason for this config"
+}
+
+Requirements:
+- Keep script production-safe and runnable by k6.
+- Include checks for status and latency threshold.
+- Use targetUrl exactly as provided unless invalid.
+- Output JSON only, no markdown.
+
+Project:
+${JSON.stringify(
+  {
+    projectId: toObjectIdString(project._id),
+    projectName: project.name,
+    projectBaseUrl: project.baseUrl,
+  },
+  null,
+  2,
+)}
+
+User intent:
+${JSON.stringify(
+  {
+    goal: value.goal,
+    targetUrl: seedTargetUrl,
+    typeHint: value.type || "Load",
+  },
+  null,
+  2,
+)}`,
+    });
+  } catch (aiError) {
+    return res.status(502).json({ error: String(aiError?.message ?? aiError ?? "Unable to generate test config.") });
+  }
+
+  let parsed;
+  try {
+    parsed = extractJsonObjectFromText(aiResponse.text);
+  } catch {
+    return res.status(502).json({ error: "AI returned invalid JSON for test config." });
+  }
+
+  const config = sanitizeGeneratedTestConfig(parsed, {
+    name: `${value.type} Test (${value.goal.slice(0, 40)})`,
+    targetUrl: seedTargetUrl,
+    type: value.type,
+    vus: 20,
+    duration: "30s",
+  });
+
+  return res.json({
+    data: {
+      ...config,
+      ai: {
+        modelId: toObjectIdString(aiResponse.model?._id),
+        modelName: aiResponse.model?.name ?? "",
+        provider: normalizeAiProvider(aiResponse.model?.provider),
+        providerModelId: aiResponse.model?.providerModelId ?? "",
+        integrationName: aiResponse.integration?.name ?? "",
+      },
+    },
+  });
+});
+
 app.post("/api/tests/run", async (req, res) => {
   const projectId = String(req.body?.projectId ?? "").trim();
   if (!isValidObjectId(projectId)) {
@@ -3498,6 +4019,66 @@ app.delete("/api/tests/:id", async (req, res) => {
   return res.json({ success: true });
 });
 
+app.get("/api/tests/:id/ai-summary", async (req, res) => {
+  const runId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(runId)) {
+    return res.status(400).json({ error: "Invalid test run id." });
+  }
+
+  const run = await TestRun.findById(runId);
+  if (!run) {
+    return res.status(404).json({ error: "Test run not found." });
+  }
+  if (!canViewProject(req.authUser, run.projectId)) {
+    return res.status(403).json({ error: "You do not have permission to view this test run." });
+  }
+  if (!TERMINAL_TEST_STATUSES.has(String(run.status ?? ""))) {
+    return res.status(409).json({ error: "AI summary is available after the run finishes." });
+  }
+
+  try {
+    const result = await generateRunAiSummary(run, { force: false });
+    return res.json({
+      data: {
+        ...result.summary,
+        cached: result.cached,
+      },
+    });
+  } catch (requestError) {
+    return res.status(502).json({ error: String(requestError?.message ?? requestError ?? "Unable to generate AI summary.") });
+  }
+});
+
+app.post("/api/tests/:id/ai-summary/regenerate", async (req, res) => {
+  const runId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(runId)) {
+    return res.status(400).json({ error: "Invalid test run id." });
+  }
+
+  const run = await TestRun.findById(runId);
+  if (!run) {
+    return res.status(404).json({ error: "Test run not found." });
+  }
+  if (!canViewProject(req.authUser, run.projectId)) {
+    return res.status(403).json({ error: "You do not have permission to view this test run." });
+  }
+  if (!TERMINAL_TEST_STATUSES.has(String(run.status ?? ""))) {
+    return res.status(409).json({ error: "AI summary is available after the run finishes." });
+  }
+
+  try {
+    const result = await generateRunAiSummary(run, { force: true });
+    return res.json({
+      data: {
+        ...result.summary,
+        cached: result.cached,
+      },
+    });
+  } catch (requestError) {
+    return res.status(502).json({ error: String(requestError?.message ?? requestError ?? "Unable to regenerate AI summary.") });
+  }
+});
+
 app.get("/api/tests/:id", async (req, res) => {
   const runId = String(req.params.id ?? "").trim();
   if (!isValidObjectId(runId)) {
@@ -3527,6 +4108,7 @@ app.get("/api/tests/:id", async (req, res) => {
       liveMetrics: run.liveMetrics ?? null,
       errorMessage: run.errorMessage ?? null,
       script: run.script,
+      aiSummary: run.aiSummary ?? null,
     },
   };
 

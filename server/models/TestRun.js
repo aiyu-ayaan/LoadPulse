@@ -50,6 +50,23 @@ const finalMetricsSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const aiSummarySchema = new mongoose.Schema(
+  {
+    text: { type: String, default: "" },
+    generatedAt: { type: Date, default: null },
+    modelId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AIModel",
+      default: null,
+    },
+    modelName: { type: String, default: "", trim: true, maxlength: 160 },
+    provider: { type: String, default: "", trim: true, maxlength: 60 },
+    providerModelId: { type: String, default: "", trim: true, maxlength: 220 },
+    integrationName: { type: String, default: "", trim: true, maxlength: 120 },
+  },
+  { _id: false },
+);
+
 const testRunSchema = new mongoose.Schema(
   {
     projectId: {
@@ -77,6 +94,7 @@ const testRunSchema = new mongoose.Schema(
     errorMessage: { type: String, default: null },
     liveMetrics: { type: liveMetricsSchema, default: () => ({}) },
     finalMetrics: { type: finalMetricsSchema, default: null },
+    aiSummary: { type: aiSummarySchema, default: null },
   },
   { timestamps: true },
 );
