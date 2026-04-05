@@ -12,6 +12,7 @@ import {
   type TestRunDetail,
 } from "../lib/api";
 import { RichTextView } from "../components/RichTextView";
+import { useAuth } from "../context/useAuth";
 
 const toStatusData = (detail: TestRunDetail | null) => {
   const counts = detail?.finalMetrics?.statusCodes ?? detail?.liveMetrics?.statusCodes;
@@ -34,6 +35,7 @@ const toStatusData = (detail: TestRunDetail | null) => {
 
 export const TestDetailsPage = () => {
   const navigate = useNavigate();
+  const { refreshCurrentUser } = useAuth();
   const { testId, projectId } = useParams<{ testId: string; projectId: string }>();
   const [detail, setDetail] = useState<TestRunDetail | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -78,6 +80,9 @@ export const TestDetailsPage = () => {
           : await generateTestRunAiSummary(testId);
         setAiSummary(response.data);
         setDetail((previous) => (previous ? { ...previous, aiSummary: response.data } : previous));
+        void refreshCurrentUser().catch(() => {
+          // Ignore refresh failures; generation succeeded.
+        });
       } catch (requestError) {
         setAiError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
       } finally {
@@ -85,7 +90,7 @@ export const TestDetailsPage = () => {
         setIsAiRegenerating(false);
       }
     },
-    [testId],
+    [refreshCurrentUser, testId],
   );
 
   useEffect(() => {

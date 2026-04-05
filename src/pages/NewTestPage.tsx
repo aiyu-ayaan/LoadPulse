@@ -8,6 +8,7 @@ import { EmptyState } from "../components/EmptyState";
 import { useNotifications } from "../context/useNotifications";
 import { ScriptEditor } from "../components/ScriptEditor";
 import { buildProjectTestPath } from "../lib/project-routes";
+import { useAuth } from "../context/useAuth";
 
 const buildTemplateScript = (
   url: string,
@@ -56,6 +57,7 @@ export const NewTestPage = () => {
   const navigate = useNavigate();
   const { selectedProject } = useProjects();
   const { addNotification } = useNotifications();
+  const { refreshCurrentUser } = useAuth();
 
   const [name, setName] = useState("Load Test (20 VUs for 30s)");
   const [isNameDirty, setIsNameDirty] = useState(false);
@@ -147,6 +149,9 @@ export const NewTestPage = () => {
       setIsScriptDirty(true);
       setAiNotes(generated.notes || "");
       setSuccessMessage(`AI generated test config using ${generated.ai.modelName}. Review and launch when ready.`);
+      void refreshCurrentUser().catch(() => {
+        // Ignore refresh failures; generation succeeded.
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to generate test config with AI.");
     } finally {

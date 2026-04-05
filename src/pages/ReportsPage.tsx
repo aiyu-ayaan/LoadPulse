@@ -21,6 +21,7 @@ import { HelperNote } from "../components/HelperNote";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
 import { RichTextView } from "../components/RichTextView";
 import { useProjects } from "../context/useProjects";
+import { useAuth } from "../context/useAuth";
 import {
   fetchAiRuntimeSettings,
   fetchTestHistory,
@@ -202,6 +203,7 @@ const escapeHtml = (value: string | number | null | undefined) =>
 export const ReportsPage = () => {
   const navigate = useNavigate();
   const { selectedProject } = useProjects();
+  const { refreshCurrentUser } = useAuth();
   const [isLoading, setIsLoading] = useState(true);
   const [isSharing, setIsSharing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -372,6 +374,11 @@ export const ReportsPage = () => {
   const status = useMemo(() => runStatusLabel(selectedRun), [selectedRun]);
   const selectedRunAiSummary = selectedRun ? aiSummariesByRunId[selectedRun.id] ?? null : null;
   const canGenerateAiSummary = selectedRun ? ["success", "failed", "stopped"].includes(selectedRun.status) : false;
+  const syncAiCredits = useCallback(() => {
+    void refreshCurrentUser().catch(() => {
+      // Ignore refresh failures; generation succeeded.
+    });
+  }, [refreshCurrentUser]);
 
   useEffect(() => {
     if (
@@ -393,6 +400,7 @@ export const ReportsPage = () => {
           ...previous,
           [selectedRun.id]: response.data,
         }));
+        syncAiCredits();
       } catch (requestError) {
         setAiSummaryError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
       } finally {
@@ -401,7 +409,7 @@ export const ReportsPage = () => {
     };
 
     void loadSummary();
-  }, [aiLoadingRunId, autoGenerateAiSummary, canGenerateAiSummary, selectedRun, selectedRunAiSummary]);
+  }, [aiLoadingRunId, autoGenerateAiSummary, canGenerateAiSummary, selectedRun, selectedRunAiSummary, syncAiCredits]);
 
   const runSelectedRunSummary = async () => {
     if (!selectedRun || !canGenerateAiSummary) {
@@ -419,6 +427,7 @@ export const ReportsPage = () => {
         ...previous,
         [selectedRun.id]: response.data,
       }));
+      syncAiCredits();
     } catch (requestError) {
       setAiSummaryError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
     } finally {
@@ -481,6 +490,7 @@ export const ReportsPage = () => {
             ...previous,
             [selectedRun.id]: response.data,
           }));
+          syncAiCredits();
         } catch {
           setError("Unable to preload AI summary for this PDF. Exported without AI summary.");
         }

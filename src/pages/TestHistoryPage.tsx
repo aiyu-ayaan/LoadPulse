@@ -7,6 +7,7 @@ import { useNavigate } from "react-router-dom";
 import { clearHistory, deleteTestRun, fetchTestHistory, generateTestRunAiSummary, stopTestRun, type TestHistoryItem } from "../lib/api";
 import { useProjects } from "../context/useProjects";
 import { buildProjectSectionPath, buildProjectTestPath } from "../lib/project-routes";
+import { useAuth } from "../context/useAuth";
 
 const formatDateTime = (value: string | null) => {
   if (!value) {
@@ -31,6 +32,7 @@ const toLatencyLabel = (latency: number | null) => {
 export const TestHistoryPage = () => {
   const navigate = useNavigate();
   const { selectedProject } = useProjects();
+  const { refreshCurrentUser } = useAuth();
   const [data, setData] = useState<TestHistoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [query, setQuery] = useState("");
@@ -153,6 +155,9 @@ export const TestHistoryPage = () => {
       setData((previous) =>
         previous.map((item) => (item.id === id ? { ...item, hasAiSummary: true } : item)),
       );
+      void refreshCurrentUser().catch(() => {
+        // Ignore refresh failures; generation succeeded.
+      });
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to generate AI summary.");
     } finally {
