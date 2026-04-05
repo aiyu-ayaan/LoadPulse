@@ -862,6 +862,87 @@ const validateAiModelCreatePayload = (payload) => {
 
 const TERMINAL_TEST_STATUSES = new Set(["success", "failed", "stopped"]);
 const AI_SETTINGS_KEY = "default";
+const AI_PROMPT_RESET_INTERVALS = Object.freeze(["day", "week", "month"]);
+const AI_PROMPT_RESET_INTERVAL_TO_MS = Object.freeze({
+  day: 24 * 60 * 60 * 1000,
+  week: 7 * 24 * 60 * 60 * 1000,
+  month: 30 * 24 * 60 * 60 * 1000,
+});
+
+const normalizeAiPromptCreditLimit = (value) => {
+  const raw = Number(value);
+  if (!Number.isFinite(raw)) {
+    return 50;
+  }
+  return Math.max(1, Math.min(100000, Math.floor(raw)));
+};
+
+const normalizeAiPromptResetInterval = (value) => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return AI_PROMPT_RESET_INTERVALS.includes(normalized) ? normalized : "day";
+};
+
+const toAiResetIntervalLabel = (interval) => {
+  if (interval === "week") {
+    return "1 week";
+  }
+  if (interval === "month") {
+    return "1 month";
+  }
+  return "1 day";
+};
+
+const computeUserAiCreditWindow = (userLike, aiSettings, nowValue = new Date()) => {
+  const now = nowValue instanceof Date ? nowValue : new Date(nowValue);
+  const resetInterval = normalizeAiPromptResetInterval(aiSettings?.promptCreditResetInterval);
+  const maxPromptsPerPeriod = normalizeAiPromptCreditLimit(aiSettings?.maxPromptsPerPeriod);
+  const intervalMs = AI_PROMPT_RESET_INTERVAL_TO_MS[resetInterval];
+
+  const rawCount = Number(userLike?.aiPromptCount ?? 0);
+  const normalizedCount = Number.isFinite(rawCount) && rawCount > 0 ? Math.floor(rawCount) : 0;
+
+  const rawStart = userLike?.aiPromptWindowStartAt ? new Date(userLike.aiPromptWindowStartAt) : null;
+  const hasValidStart = Boolean(rawStart && Number.isFinite(rawStart.getTime()));
+
+  let windowStartAt = hasValidStart ? rawStart : now;
+  let usedCount = normalizedCount;
+  let resetAt = new Date(windowStartAt.getTime() + intervalMs);
+  let resetApplied = false;
+
+  if (now.getTime() >= resetAt.getTime()) {
+    usedCount = 0;
+    windowStartAt = now;
+    resetAt = new Date(windowStartAt.getTime() + intervalMs);
+    resetApplied = true;
+  }
+
+  const unlimited = Boolean(userLike?.aiUnlimited);
+  const remaining = unlimited ? null : Math.max(0, maxPromptsPerPeriod - usedCount);
+  const requiresPersist =
+    !hasValidStart ||
+    resetApplied ||
+    normalizedCount !== rawCount;
+
+  return {
+    unlimited,
+    usedCount,
+    remaining,
+    maxPromptsPerPeriod,
+    resetInterval,
+    windowStartAt,
+    resetAt,
+    requiresPersist,
+  };
+};
+
+const toAiCreditsResponse = (creditWindow) => ({
+  unlimited: Boolean(creditWindow?.unlimited),
+  current: creditWindow?.unlimited ? null : Math.max(0, Number(creditWindow?.remaining ?? 0) || 0),
+  total: Math.max(1, Number(creditWindow?.maxPromptsPerPeriod ?? 1) || 1),
+  used: Math.max(0, Number(creditWindow?.usedCount ?? 0) || 0),
+  resetInterval: normalizeAiPromptResetInterval(creditWindow?.resetInterval),
+  resetAt: creditWindow?.resetAt instanceof Date ? creditWindow.resetAt.toISOString() : null,
+});
 
 const parseAiContentToText = (value) => {
   if (typeof value === "string") {
@@ -954,25 +1035,127 @@ const getAiSettings = async () => {
   const created = await AISetting.create({
     key: AI_SETTINGS_KEY,
     autoGenerateTestSummary: false,
+    maxPromptsPerPeriod: 50,
+    promptCreditResetInterval: "day",
   });
   return created;
 };
 
 const toAiSettingsResponse = (setting) => ({
   autoGenerateTestSummary: Boolean(setting?.autoGenerateTestSummary),
+  maxPromptsPerPeriod: normalizeAiPromptCreditLimit(setting?.maxPromptsPerPeriod),
+  promptCreditResetInterval: normalizeAiPromptResetInterval(setting?.promptCreditResetInterval),
   updatedAt: setting?.updatedAt ?? null,
 });
 
 const validateAiSettingsPayload = (payload) => {
   const hasAutoGenerate = Object.prototype.hasOwnProperty.call(payload ?? {}, "autoGenerateTestSummary");
-  if (!hasAutoGenerate) {
-    return { error: "autoGenerateTestSummary is required." };
+  const hasPromptLimit = Object.prototype.hasOwnProperty.call(payload ?? {}, "maxPromptsPerPeriod");
+  const hasResetInterval = Object.prototype.hasOwnProperty.call(payload ?? {}, "promptCreditResetInterval");
+
+  if (!hasAutoGenerate || !hasPromptLimit || !hasResetInterval) {
+    return { error: "autoGenerateTestSummary, maxPromptsPerPeriod and promptCreditResetInterval are required." };
+  }
+
+  const maxPromptsRaw = Number(payload?.maxPromptsPerPeriod);
+  if (!Number.isFinite(maxPromptsRaw) || maxPromptsRaw <= 0) {
+    return { error: "maxPromptsPerPeriod must be a positive number." };
+  }
+
+  const resetInterval = String(payload?.promptCreditResetInterval ?? "").trim().toLowerCase();
+  if (!AI_PROMPT_RESET_INTERVALS.includes(resetInterval)) {
+    return { error: "promptCreditResetInterval must be one of: day, week, month." };
   }
 
   return {
     value: {
       autoGenerateTestSummary: Boolean(payload?.autoGenerateTestSummary),
+      maxPromptsPerPeriod: normalizeAiPromptCreditLimit(maxPromptsRaw),
+      promptCreditResetInterval: resetInterval,
     },
+  };
+};
+
+const consumeAiPromptCredit = async (authUser) => {
+  const authUserId = String(authUser?.id ?? "").trim();
+  if (!isValidObjectId(authUserId)) {
+    return {
+      allowed: false,
+      status: 401,
+      error: "Unable to verify user for AI credit usage.",
+      credits: null,
+    };
+  }
+
+  const [settings, userDoc] = await Promise.all([
+    getAiSettings(),
+    User.findById(authUserId),
+  ]);
+
+  if (!userDoc) {
+    return {
+      allowed: false,
+      status: 404,
+      error: "User account was not found.",
+      credits: null,
+    };
+  }
+
+  const window = computeUserAiCreditWindow(userDoc, settings);
+
+  if (!window.unlimited && window.remaining <= 0) {
+    if (window.requiresPersist) {
+      userDoc.aiPromptCount = window.usedCount;
+      userDoc.aiPromptWindowStartAt = window.windowStartAt;
+      await userDoc.save();
+    }
+
+    const nextResetLabel = toAiResetIntervalLabel(window.resetInterval);
+    const resetAtText = window.resetAt.toLocaleString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    return {
+      allowed: false,
+      status: 429,
+      error: `AI credit limit reached. You have used ${window.maxPromptsPerPeriod}/${window.maxPromptsPerPeriod} prompts. Credits reset every ${nextResetLabel} (next reset: ${resetAtText}).`,
+      credits: toAiCreditsResponse(window),
+    };
+  }
+
+  if (!window.unlimited) {
+    const nextUsedCount = window.usedCount + 1;
+    userDoc.aiPromptCount = nextUsedCount;
+    userDoc.aiPromptWindowStartAt = window.windowStartAt;
+    await userDoc.save();
+
+    return {
+      allowed: true,
+      status: 200,
+      error: "",
+      credits: toAiCreditsResponse({
+        ...window,
+        usedCount: nextUsedCount,
+        remaining: Math.max(0, window.maxPromptsPerPeriod - nextUsedCount),
+      }),
+    };
+  }
+
+  if (window.requiresPersist) {
+    userDoc.aiPromptCount = window.usedCount;
+    userDoc.aiPromptWindowStartAt = window.windowStartAt;
+    await userDoc.save();
+  }
+
+  return {
+    allowed: true,
+    status: 200,
+    error: "",
+    credits: toAiCreditsResponse(window),
   };
 };
 
@@ -1700,9 +1883,12 @@ const buildSessionUser = async (userDoc) => {
   const plainUser = toPlainObject(userDoc);
   await syncUserProjectIdentity(plainUser);
 
-  const projects = await Project.find(buildProjectAccessQuery(plainUser))
-    .select({ _id: 1, ownerUserId: 1, accessList: 1 })
-    .lean();
+  const [projects, aiSettings] = await Promise.all([
+    Project.find(buildProjectAccessQuery(plainUser))
+      .select({ _id: 1, ownerUserId: 1, accessList: 1 })
+      .lean(),
+    getAiSettings(),
+  ]);
 
   const projectPermissions = projects
     .map((project) => {
@@ -1715,8 +1901,11 @@ const buildSessionUser = async (userDoc) => {
     })
     .filter((permission) => permission.canView || permission.canRun);
 
+  const aiCreditWindow = computeUserAiCreditWindow(plainUser, aiSettings);
+
   return toPublicUser({
     ...plainUser,
+    aiCredits: toAiCreditsResponse(aiCreditWindow),
     projectPermissions,
   });
 };
@@ -2096,6 +2285,7 @@ const toAdminUserResponse = (userDoc) => ({
   isAdmin: Boolean(userDoc.isAdmin),
   isOwner: Boolean(userDoc.isOwner),
   isActive: userDoc.isActive !== false,
+  aiUnlimited: Boolean(userDoc.aiUnlimited),
   githubLinked: Boolean(userDoc.githubId),
   hasPassword: Boolean(userDoc.passwordHash),
   createdAt: userDoc.createdAt,
@@ -2934,6 +3124,34 @@ app.patch("/api/admin/users/:id/admin", requireAdmin, async (req, res) => {
   });
 });
 
+app.patch("/api/admin/users/:id/ai-unlimited", requireAdmin, async (req, res) => {
+  const userId = String(req.params.id ?? "").trim();
+  if (!isValidObjectId(userId)) {
+    return res.status(400).json({ error: "Invalid user id." });
+  }
+
+  const aiUnlimited = req.body?.aiUnlimited;
+  if (typeof aiUnlimited !== "boolean") {
+    return res.status(400).json({ error: "aiUnlimited must be true or false." });
+  }
+
+  const targetUser = await User.findById(userId);
+  if (!targetUser) {
+    return res.status(404).json({ error: "User not found." });
+  }
+
+  targetUser.aiUnlimited = aiUnlimited;
+  if (!targetUser.aiPromptWindowStartAt) {
+    targetUser.aiPromptWindowStartAt = new Date();
+  }
+  await targetUser.save();
+  await invalidateApiCache();
+
+  return res.json({
+    data: toAdminUserResponse(targetUser),
+  });
+});
+
 app.get("/api/admin/ai/overview", requireAdmin, async (req, res) => {
   const cacheKey = buildCacheKey("admin-ai-overview", req.authUser);
   const cached = await getCachedJson(cacheKey);
@@ -3171,6 +3389,8 @@ app.patch("/api/admin/ai/settings", requireAdmin, async (req, res) => {
     {
       $set: {
         autoGenerateTestSummary: value.autoGenerateTestSummary,
+        maxPromptsPerPeriod: value.maxPromptsPerPeriod,
+        promptCreditResetInterval: value.promptCreditResetInterval,
         updatedByUserId: new mongoose.Types.ObjectId(req.authUser.id),
       },
       $setOnInsert: {
@@ -4099,6 +4319,14 @@ app.post("/api/projects/:id/ai/test-config", async (req, res) => {
   const project = runResult.project;
   const seedTargetUrl = value.targetUrl || project.baseUrl;
 
+  const aiCreditCheck = await consumeAiPromptCredit(req.authUser);
+  if (!aiCreditCheck.allowed) {
+    return res.status(aiCreditCheck.status).json({
+      error: aiCreditCheck.error,
+      credits: aiCreditCheck.credits,
+    });
+  }
+
   let aiResponse;
   try {
     aiResponse = await executeAiWithFallback({
@@ -4420,6 +4648,23 @@ app.post("/api/tests/:id/ai-summary/generate", async (req, res) => {
     return res.status(409).json({ error: "AI summary is available after the run finishes." });
   }
 
+  if (run?.aiSummary?.text) {
+    return res.json({
+      data: {
+        ...run.aiSummary,
+        cached: true,
+      },
+    });
+  }
+
+  const aiCreditCheck = await consumeAiPromptCredit(req.authUser);
+  if (!aiCreditCheck.allowed) {
+    return res.status(aiCreditCheck.status).json({
+      error: aiCreditCheck.error,
+      credits: aiCreditCheck.credits,
+    });
+  }
+
   try {
     const result = await generateRunAiSummary(run, { force: false, actor: req.authUser });
     return res.json({
@@ -4448,6 +4693,14 @@ app.post("/api/tests/:id/ai-summary/regenerate", async (req, res) => {
   }
   if (!TERMINAL_TEST_STATUSES.has(String(run.status ?? ""))) {
     return res.status(409).json({ error: "AI summary is available after the run finishes." });
+  }
+
+  const aiCreditCheck = await consumeAiPromptCredit(req.authUser);
+  if (!aiCreditCheck.allowed) {
+    return res.status(aiCreditCheck.status).json({
+      error: aiCreditCheck.error,
+      credits: aiCreditCheck.credits,
+    });
   }
 
   try {

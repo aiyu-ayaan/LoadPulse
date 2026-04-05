@@ -24,6 +24,9 @@ const userSchema = new mongoose.Schema(
     isAdmin: { type: Boolean, default: false },
     isOwner: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    aiUnlimited: { type: Boolean, default: false },
+    aiPromptCount: { type: Number, default: 0, min: 0 },
+    aiPromptWindowStartAt: { type: Date, default: Date.now },
     twoFactorEnabled: { type: Boolean, default: false },
     twoFactorSecretEncrypted: { type: String, default: "" },
     pendingTwoFactorSecretEncrypted: { type: String, default: "" },
@@ -36,6 +39,7 @@ userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ githubId: 1 }, { unique: true, sparse: true });
 userSchema.index({ githubUsername: 1 });
 userSchema.index({ isAdmin: 1, isActive: 1 });
+userSchema.index({ aiUnlimited: 1 });
 userSchema.index({ createdAt: -1 });
 
 export const User = mongoose.model("User", userSchema);

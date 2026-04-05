@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Plus, Shield, UserCheck, UserX, Users } from "lucide-react";
-import { createAdminUser, fetchAdminUsers, setAdminUserRole, setAdminUserStatus, type AdminUser } from "../../lib/api";
+import {
+  createAdminUser,
+  fetchAdminUsers,
+  setAdminUserAiUnlimited,
+  setAdminUserRole,
+  setAdminUserStatus,
+  type AdminUser,
+} from "../../lib/api";
 
 export const AdminAccountsPage = () => {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -106,6 +113,21 @@ export const AdminAccountsPage = () => {
       setSuccess(`${response.data.username} is now ${response.data.isAdmin ? "admin" : "user"}.`);
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to update admin role.");
+    } finally {
+      setWorkingUserId(null);
+    }
+  };
+
+  const handleToggleAiUnlimited = async (target: AdminUser) => {
+    setWorkingUserId(target.id);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await setAdminUserAiUnlimited(target.id, !target.aiUnlimited);
+      replaceUser(response.data);
+      setSuccess(`${response.data.username} AI access is now ${response.data.aiUnlimited ? "unlimited" : "quota-based"}.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update AI access.");
     } finally {
       setWorkingUserId(null);
     }
@@ -235,6 +257,7 @@ export const AdminAccountsPage = () => {
                     {member.isAdmin && <span className="rounded bg-primary/20 px-2 py-0.5 text-primary">Admin</span>}
                     {member.isOwner && <span className="rounded bg-amber-500/20 px-2 py-0.5 text-amber-200">Owner</span>}
                     {member.githubLinked && <span className="rounded bg-violet-500/20 px-2 py-0.5 text-violet-200">GitHub</span>}
+                    {member.aiUnlimited && <span className="rounded bg-cyan-500/20 px-2 py-0.5 text-cyan-200">Unlimited AI</span>}
                     {!member.hasPassword && <span className="rounded bg-slate-700/70 px-2 py-0.5 text-slate-200">OAuth only</span>}
                   </div>
                 </div>
@@ -265,6 +288,14 @@ export const AdminAccountsPage = () => {
                   >
                     {member.isAdmin ? <Users className="h-3.5 w-3.5" /> : <Shield className="h-3.5 w-3.5" />}
                     {member.isAdmin ? "Remove admin" : "Set admin"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isWorking}
+                    onClick={() => void handleToggleAiUnlimited(member)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1.5 text-xs text-cyan-200 transition hover:bg-cyan-500/20 disabled:opacity-45"
+                  >
+                    {member.aiUnlimited ? "Unlimited AI: ON" : "Unlimited AI: OFF"}
                   </button>
                 </div>
               </div>

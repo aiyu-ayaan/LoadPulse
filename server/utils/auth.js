@@ -19,6 +19,17 @@ export const toPublicUser = (userDoc) => ({
   isOwner: Boolean(userDoc?.isOwner),
   isActive: Boolean(userDoc?.isActive ?? true),
   twoFactorEnabled: Boolean(userDoc?.twoFactorEnabled),
+  aiCredits: {
+    unlimited: Boolean(userDoc?.aiCredits?.unlimited),
+    current:
+      userDoc?.aiCredits?.current === null || userDoc?.aiCredits?.current === undefined
+        ? null
+        : Math.max(0, Number(userDoc?.aiCredits?.current ?? 0) || 0),
+    total: Math.max(1, Number(userDoc?.aiCredits?.total ?? 1) || 1),
+    used: Math.max(0, Number(userDoc?.aiCredits?.used ?? 0) || 0),
+    resetInterval: String(userDoc?.aiCredits?.resetInterval ?? "day"),
+    resetAt: userDoc?.aiCredits?.resetAt ? String(userDoc?.aiCredits?.resetAt) : null,
+  },
   projectPermissions: (userDoc?.projectPermissions ?? []).map((permission) => ({
     projectId: normalizeProjectId(permission?.projectId),
     canView: Boolean(permission?.canView || permission?.canRun),

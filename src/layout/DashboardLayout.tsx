@@ -51,6 +51,27 @@ export const DashboardLayout = () => {
   const { user, signOut } = useAuth();
   const { notifications, unreadCount, markAsRead, markAllAsRead, removeNotification, clearNotifications } = useNotifications();
 
+  const aiCredits = user?.aiCredits;
+  const aiCreditValue = aiCredits?.unlimited
+    ? "Unlimited"
+    : `${Math.max(0, aiCredits?.current ?? 0)}/${Math.max(1, aiCredits?.total ?? 1)}`;
+  const aiResetWindow =
+    aiCredits?.resetInterval === "week"
+      ? "1 week"
+      : aiCredits?.resetInterval === "month"
+        ? "1 month"
+        : "1 day";
+  const aiResetAtLabel = aiCredits?.resetAt
+    ? new Date(aiCredits.resetAt).toLocaleString("en-US", {
+      month: "short",
+      day: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    })
+    : "Not available";
+  const aiCreditsTooltip = `Credits reset every ${aiResetWindow}. Next reset: ${aiResetAtLabel}.`;
+
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -243,6 +264,16 @@ export const DashboardLayout = () => {
               <LogOut className="h-4 w-4 shrink-0" />
               {!isCollapsed && "Sign out"}
             </button>
+
+            {!isCollapsed && (
+              <div
+                className="mt-2 rounded-lg border border-cyan-500/25 bg-cyan-500/10 px-2 py-2"
+                title={aiCreditsTooltip}
+              >
+                <p className="text-[11px] uppercase tracking-[0.12em] text-cyan-200/90">AI Credits</p>
+                <p className="mt-1 text-sm font-semibold text-cyan-100">{aiCreditValue}</p>
+              </div>
+            )}
 
             {!isCollapsed && (
               <div className="mt-2 flex items-center gap-2 rounded-lg border border-white/10 bg-black/20 px-2 py-2">

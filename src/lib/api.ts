@@ -37,6 +37,17 @@ export interface ProjectPermission {
   canRun: boolean;
 }
 
+export type AICreditResetInterval = "day" | "week" | "month";
+
+export interface AICredits {
+  unlimited: boolean;
+  current: number | null;
+  total: number;
+  used: number;
+  resetInterval: AICreditResetInterval;
+  resetAt: string | null;
+}
+
 export interface AuthUser {
   id: string;
   username: string;
@@ -49,6 +60,7 @@ export interface AuthUser {
   isOwner: boolean;
   isActive: boolean;
   twoFactorEnabled: boolean;
+  aiCredits: AICredits;
   projectPermissions: ProjectPermission[];
 }
 
@@ -138,6 +150,7 @@ export interface AdminUser {
   isAdmin: boolean;
   isOwner: boolean;
   isActive: boolean;
+  aiUnlimited: boolean;
   githubLinked: boolean;
   hasPassword: boolean;
   createdAt: string;
@@ -185,6 +198,8 @@ export interface AdminAIModelCatalogResponse {
 
 export interface AdminAISettings {
   autoGenerateTestSummary: boolean;
+  maxPromptsPerPeriod: number;
+  promptCreditResetInterval: AICreditResetInterval;
   updatedAt: string | null;
 }
 
@@ -316,6 +331,8 @@ export interface TestRunAiSummary {
 
 export interface AiRuntimeSettings {
   autoGenerateTestSummary: boolean;
+  maxPromptsPerPeriod: number;
+  promptCreditResetInterval: AICreditResetInterval;
   updatedAt: string | null;
 }
 
@@ -571,6 +588,12 @@ export const setAdminUserRole = (userId: string, isAdmin: boolean) =>
     body: JSON.stringify({ isAdmin }),
   });
 
+export const setAdminUserAiUnlimited = (userId: string, aiUnlimited: boolean) =>
+  request<{ data: AdminUser }>(`/api/admin/users/${encodeURIComponent(userId)}/ai-unlimited`, {
+    method: "PATCH",
+    body: JSON.stringify({ aiUnlimited }),
+  });
+
 export const fetchAdminAiOverview = () =>
   request<{ data: { settings: AdminAISettings; integrations: AdminAIIntegration[]; models: AdminAIModel[] } }>("/api/admin/ai/overview");
 
@@ -620,7 +643,11 @@ export const fetchAdminAiModels = () =>
 export const fetchAdminAiSettings = () =>
   request<{ data: AdminAISettings }>("/api/admin/ai/settings");
 
-export const updateAdminAiSettings = (payload: { autoGenerateTestSummary: boolean }) =>
+export const updateAdminAiSettings = (payload: {
+  autoGenerateTestSummary: boolean;
+  maxPromptsPerPeriod: number;
+  promptCreditResetInterval: AICreditResetInterval;
+}) =>
   request<{ data: AdminAISettings }>("/api/admin/ai/settings", {
     method: "PATCH",
     body: JSON.stringify(payload),
