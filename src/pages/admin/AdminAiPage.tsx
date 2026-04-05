@@ -116,9 +116,9 @@ export const AdminAiPage = () => {
         previous.integrationId || response.data.integrations.length === 0
           ? previous
           : {
-              ...previous,
-              integrationId: response.data.integrations[0].id,
-            },
+            ...previous,
+            integrationId: response.data.integrations[0].id,
+          },
       );
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to load AI settings.");
@@ -484,9 +484,8 @@ export const AdminAiPage = () => {
 
       {(error || success) && (
         <div
-          className={`rounded-lg border px-3 py-2 text-sm ${
-            error ? "border-rose-500/30 bg-rose-500/10 text-rose-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-          }`}
+          className={`rounded-lg border px-3 py-2 text-sm ${error ? "border-rose-500/30 bg-rose-500/10 text-rose-200" : "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
+            }`}
         >
           {error || success}
         </div>
@@ -713,9 +712,8 @@ export const AdminAiPage = () => {
                       <p className="text-xs text-slate-400">{providerLabel(integration.provider)}</p>
                     </div>
                     <span
-                      className={`rounded px-2 py-1 text-xs ${
-                        integration.isEnabled ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-600/40 text-slate-200"
-                      }`}
+                      className={`rounded px-2 py-1 text-xs ${integration.isEnabled ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-600/40 text-slate-200"
+                        }`}
                     >
                       {integration.isEnabled ? "Enabled" : "Disabled"}
                     </span>
@@ -777,9 +775,8 @@ export const AdminAiPage = () => {
                       </p>
                     </div>
                     <span
-                      className={`rounded px-2 py-1 text-xs ${
-                        model.isEnabled ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-600/40 text-slate-200"
-                      }`}
+                      className={`rounded px-2 py-1 text-xs ${model.isEnabled ? "bg-emerald-500/20 text-emerald-200" : "bg-slate-600/40 text-slate-200"
+                        }`}
                     >
                       {model.isEnabled ? "Enabled" : "Disabled"}
                     </span>
